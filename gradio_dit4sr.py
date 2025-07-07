@@ -237,7 +237,7 @@ def process_sr(
     ])
 
     seed_everything(seed)
-    generator = torch.Generator(device='cuda:1')
+    generator = torch.Generator(device='cuda:0')
     generator.manual_seed(seed)
 
     validation_prompt = f"{user_prompt} {positive_prompt}"
@@ -340,4 +340,3 @@ with block:
     run_sr_button.click(fn=process_sr, inputs=inputs, outputs=[result_gallery])
 
 block.launch()
-
