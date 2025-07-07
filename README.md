@@ -9,7 +9,7 @@
 
 This is the official PyTorch codes for the paper:
 
->**DiT4SR: Taming Diffusion Transformer for Real-World Image Super-Resolution**<br>  [Zheng-Peng Duan<sup>1,2 *</sup>](https://adam-duan.github.io/), [Jiawei Zhang<sup>2</sup>](https://sites.google.com/site/zhjw1988), [Xin Jin<sup>1</sup>](https://srameo.github.io/), [Ziheng Zhang<sup>1</sup>](), [Zheng Xiong<sup>2</sup>](), [Dongqing Zou<sup>2,3</sup>](https://sites.google.com/view/dongqingzou/), [Jimmy S. Ren<sup>2,4</sup>](https://sites.google.com/view/dongqingzou/), [Chunle Guo<sup>1</sup>](https://scholar.google.com/citations?user=RZLYwR0AAAAJ&hl=en), [Chongyi Li<sup>1 &dagger;</sup>](https://li-chongyi.github.io/) <br>
+>**DiT4SR: Taming Diffusion Transformer for Real-World Image Super-Resolution**<br>  [Zheng-Peng Duan<sup>1,2 *</sup>](https://adam-duan.github.io/), [Jiawei Zhang<sup>2</sup>](https://sites.google.com/site/zhjw1988), [Xin Jin<sup>1</sup>](https://srameo.github.io/), [Ziheng Zhang<sup>1</sup>](https://men1sc.us/), [Zheng Xiong<sup>2</sup>](), [Dongqing Zou<sup>2,3</sup>](https://sites.google.com/view/dongqingzou/), [Jimmy S. Ren<sup>2,4</sup>](https://www.jimmyren.com/), [Chunle Guo<sup>1</sup>](https://scholar.google.com/citations?user=RZLYwR0AAAAJ&hl=en), [Chongyi Li<sup>1 &dagger;</sup>](https://li-chongyi.github.io/) <br>
 > <sup>1</sup> VCIP, CS, Nankai University, <sup>2</sup> SenseTime Research, <sup>3</sup> PBVR, <sup>4</sup> Hong Kong Metropolitan University <br>
 > <sup>*</sup>This project is done during the internship at SenseTime Research. <br> <sup>&dagger;</sup>Corresponding author.
 
@@ -97,7 +97,7 @@ Download the training datasets including `DIV2K`, `DIV8K`, `Flickr2K`, `Flickr8K
 **Step 2: Prepare the training data**
 
 - Following [[SeeSR](https://github.com/cswry/SeeSR)], you can generate the LR-HR pairs for training using `bash_data/make_pairs.sh`.
-- Using `bash_data/make_prompts.sh` to generate the prompts for each HR image.
+- Using `bash_data/make_prompt.sh` to generate the prompts for each HR image.
 - Using `bash_data/make_latent.sh` to generate the latent codes for both HR and LR images.
 - Using `bash_data/make_embedding.sh` to generate the embedding for each prompt.
 - Don't forget to download [[NULL_pooled_prompt_embeds.pt and NULL_prompt_embeds.pt](https://huggingface.co/acceptee/DiT4SR)] and place them in the corresponding directories.
@@ -160,4 +160,3 @@ If you find our repo useful for your research, please consider citing our paper:
 ## :postbox: Contact
 
 For technical questions, please contact `adamduan0211[AT]gmail.com`
-
