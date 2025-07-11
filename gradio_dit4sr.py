@@ -256,8 +256,15 @@ def process_sr(
     resize_flag = True  #
 
     images = []
+
+    weight_dtype = torch.float32
+    if args.mixed_precision == "fp16":
+        weight_dtype = torch.float16
+    elif args.mixed_precision == "bf16":
+        weight_dtype = torch.bfloat16
+
     try:
-        with torch.autocast("cuda"):
+        with torch.autocast("cuda", dtype=weight_dtype, enabled=(args.mixed_precision != "no")):
             image = pipeline(
                 prompt=validation_prompt, control_image=input_image, num_inference_steps=num_inference_steps, generator=generator, height=height, width=width,
                 guidance_scale=cfg_scale, negative_prompt=negative_prompt, start_point=args.start_point, latent_tiled_size=args.latent_tiled_size, latent_tiled_overlap=args.latent_tiled_overlap,
