@@ -25,10 +25,10 @@ This is the official PyTorch codes for the paper:
 - **2025.07.07** Create this repo and release related code of our paper.
 
 ## :runner: TODO
-- [x] Release a huggingface demo
-- [x] Release Checkpoints
-- [x] Release NKUSR8K dataset 
-- [x] Release training and inference code
+- [x] ~~Release a huggingface demo~~
+- [x] ~~Release Checkpoints~~
+- [x] ~~Release NKUSR8K dataset~~
+- [x] ~~Release training and inference code~~
 
 
 ## :wrench: Dependencies and Installation
