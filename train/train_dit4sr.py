@@ -47,6 +47,10 @@ from diffusers.utils import check_min_version, is_wandb_available
 from diffusers.utils.torch_utils import is_compiled_module
 
 from dataloaders.paired_dataset_sd3_latent import PairedCaptionDataset
+import torch.nn.functional as F
+from omegaconf import OmegaConf
+import wandb 
+
 
 
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
@@ -393,6 +397,9 @@ def parse_args(input_args=None):
     parser.add_argument("--root_folders",  type=str , default='' )
     parser.add_argument("--null_text_ratio", type=float, default=0.5)
     parser.add_argument('--trainable_modules', nargs='*', type=str, default=["control"])
+
+    # pho
+    parser.add_argument("--tracker_run_name", type=str)
     
     if input_args is not None:
         args = parser.parse_args(input_args)
@@ -796,8 +803,18 @@ def main(args):
         # tensorboard cannot handle list types for config
         tracker_config.pop("validation_prompt")
         tracker_config.pop("validation_image")
+        wandb.login(key='e32eed0c2509bf898b850b0065ab62345005fb73')
+        accelerator.init_trackers(
+            project_name=args.tracker_project_name,
+            config=tracker_config,
+            init_kwargs={
+                    'wandb':{
+                        'name': args.tracker_run_name,}
+                }
+        )
 
-        accelerator.init_trackers(args.tracker_project_name, config=tracker_config)
+
+        # accelerator.init_trackers(args.tracker_project_name, config=tracker_config)
 
     # Train!
     total_batch_size = args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
@@ -871,6 +888,7 @@ def main(args):
                 #     model_input = (model_input - vae.config.shift_factor) * vae.config.scaling_factor
                 # controlnet(s) inference
                 controlnet_image = batch["conditioning_pixel_values"].to(dtype=weight_dtype)
+                controlnet_image = F.interpolate(controlnet_image, size=(model_input.shape[2], model_input.shape[3]), mode='bicubic', align_corners=False)
                 # with torch.no_grad():
                 #     controlnet_image = vae.encode(controlnet_image).latent_dist.sample()
                 #     controlnet_image = (controlnet_image - vae.config.shift_factor)  * vae.config.scaling_factor
@@ -904,14 +922,14 @@ def main(args):
                 prompt_embeds = batch["prompt_embeds"].to(dtype=model_input.dtype)
                 pooled_prompt_embeds = batch["pooled_prompt_embeds"].to(dtype=model_input.dtype)
                 # prompt_embeds = torch.cat([prompt_embeds, image_embedding], dim=-2)
-
+                # breakpoint()
                 # Predict the noise residual
-                model_pred = transformer(
-                    hidden_states=noisy_model_input,
-                    controlnet_image=controlnet_image,
-                    timestep=timesteps,
-                    encoder_hidden_states=prompt_embeds,
-                    pooled_projections=pooled_prompt_embeds,
+                model_pred = transformer(   
+                    hidden_states=noisy_model_input,            # b 16 64 64 
+                    controlnet_image=controlnet_image,          # b 16 16 16  
+                    timestep=timesteps,                         # b
+                    encoder_hidden_states=prompt_embeds,        # b 154 4096
+                    pooled_projections=pooled_prompt_embeds,    # b 2048
                     return_dict=False,
                 )[0]
 

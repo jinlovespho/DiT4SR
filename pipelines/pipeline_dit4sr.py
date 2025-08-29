@@ -1024,8 +1024,9 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
                 if self.interrupt:
                     continue
                 # latent_model_input = torch.cat([latents, control_image], dim=1)
-                latent_model_input = latents
+                latent_model_input = latents    # b 16 64 64
 
+                # breakpoint()
                 # expand the latents if we are doing classifier free guidance
                 latent_model_input = torch.cat([latent_model_input] * 2) if self.do_classifier_free_guidance else latent_model_input
                 # broadcast to batch dimension in a way that's compatible with ONNX/Core ML
@@ -1044,13 +1045,14 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
                         pooled_prompt_embeds_input = torch.cat([negative_pooled_prompt_embeds, pooled_prompt_embeds], dim=0)
                     else:
                         pooled_prompt_embeds_input = pooled_prompt_embeds
+                    
                 # controlnet(s) inference
                     noise_pred = self.transformer(
-                        hidden_states=latent_model_input,
-                        controlnet_image=control_image,
-                        timestep=timestep,
-                        encoder_hidden_states=prompt_embeds_input,
-                        pooled_projections=pooled_prompt_embeds_input,
+                        hidden_states=latent_model_input,                       # b 16 64 64 
+                        controlnet_image=control_image,                         # b 16 64 64 
+                        timestep=timestep,                                      # b      
+                        encoder_hidden_states=prompt_embeds_input,              # b 333 4096
+                        pooled_projections=pooled_prompt_embeds_input,          # b 2048
                         joint_attention_kwargs=self.joint_attention_kwargs,
                         return_dict=False,
                     )[0]

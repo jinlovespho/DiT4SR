@@ -6,6 +6,7 @@ import argparse
 import numpy as np
 import re
 from PIL import Image
+import json
 
 import torch
 
@@ -25,6 +26,37 @@ from torchvision import transforms
 import time
 
 logger = get_logger(__name__, log_level="INFO")
+
+# unicode conversion: char <-> int
+# use chr() and ord()
+# char_table = [chr(i) for i in range(32,127)]
+# valid_voc = list(string.printable[:-6])
+# invalid_voc=['□', '∫', 'æ', '⬏', 'Σ', '■', 'Å', 'Ḏ', '£', 'ń', '⌀', 'Ù', '│', 'Ⅶ', 'Â', 'ς', 'Ⅻ', '⁴', 'ъ', '∁', 'Æ', 'α', 'Ç', 'ˣ', '・', '⤤', 'Đ', 'ı', '≡', '⋄', 'Å', 'ᴴ', 'ᵗ', 'Ȃ', 'δ', 'Ì', 'Ρ', '⟷', 'ï', '«', 'ȯ', 'Ǒ', '⇩', 'ζ', '✰', '⁹', 'м', 'Ộ', '❘', '₄', '²', 'φ', '⌴', '⇨', 'ƌ', 'σ', 'Ⅸ', '∞', 'ţ', 'ů', '◁', '½', '¾', 'ᴾ', '�', 'ê', 'Ⅵ', 'ˢ', '°', 'ɮ', '⇪', 'ᵈ', 'Ė', 'Ǐ', '⊲', '·', 'û', '˅', '⊤', '↰', 'Ī', 'ȍ', '×', '⊝', '‟', '√', '➀', 'î', '↹', '➞', '↑', 'ü', '⋏', '℃', 'Û', 'Ȅ', '›', '⟶', '○', 'Ⓡ', 'Ȋ', '➜', 'ᴺ', 'å', '►', '˂', 'ι', 'ā', 'Ś', '∇', '•', '¥', '★', '⋅', 'ₖ', 'ũ', '⁼', 'İ', '∓', '⊂', '➯', '₅', 'Ồ', '»', 'Ž', 'ì', 'Ⅴ', '„', 'Ň', 'ú', '‑', 'Ä', '⊣', '˄', '˙', 'Ó', '±', '╳', 'ⁿ', 'ū', 'ş', 'л', 'Ṡ', 'ᴵ', 'Ȏ', 'ñ', 'λ', '✓', 'ø', '✞', '≤', 'Õ', '⎯', '⬌', 'ʳ', 'Š', '◉', '➨', 'ᶜ', 'ź', 'ġ', 'ÿ', '◦', 'ḻ', '➮', 'ᴸ', 'Ú', '─', '⇧', '⤶', 'ð', 'ë', 'Ξ', 'ȑ', '⇦', '↻', 'ă', 'Ě', 'Ω', 'Á', '₃', 'к', 'Ⅰ', '▬', '—', '∈', 'Ạ', '☐', '⁸', 'Ŕ', 'ù', 'â', 'п', 'ᴭ', '÷', '↲', '‘', 'Ȇ', 'ᵀ', '¿', 'Ț', '▎', 'ě', 'ⱽ', 'Λ', '∷', '△', 'ç', 'ǫ', 'Ầ', '➩', 'и', 'Ū', 'ý', '―', '⇵', 'Í', 'ꝋ', '↓', '©', '³', 'Ɔ', 'è', '🠈', 'ğ', 'Ⓐ', 'я', 'Φ', 'Ấ', 'ᵖ', '︽', '˚', 'œ', '∥', 'β', 'й', 'Ⓒ', '⬍', '∨', '℮', '¼', 'ć', '␣', 'Ã', '🡨', 'Ą', 'ǵ', '™', 'Ế', 'ᵐ', '◄', 'Ń', '✱', 'ô', '¢', '₁', 'Ⅱ', '¹', 'π', 'µ', 'Ĺ', '⍙', 'р', 'Ï', 'ε', '⟵', '∆', 'ы', '⧫', 'ã', 'ė', '⁰', '⬉', '−', '⬋', '◯', 'о', 'À', 'ρ', '☰', 'τ', 'ŗ', '⸬', 'Ö', 'é', 'ə', 'Ǫ', 'Ē', '⎵', '𝔀', 'ⓒ', 'ȏ', '“', 'Č', 'č', 'Î', '∙', 'ṣ', '\u200b', '✚', 'ō', '”', 'ö', 'ᴹ', '▢', 'ν', '⌣', '：', '︾', '﹘', 'а', '∖', '⌄', 'в', '︿', 'ᵃ', 'ớ', '↺', '▲', '▽', '…', 'Ë', '⌫', '⤷', '€', '⊘', 'Ŏ', '₂', '⤺', '⁵', 'Ȧ', '∧', 'ω', '卐', 'Ⅳ', '⁻', '↵', 'ĩ', 'Ⅲ', 'Ă', '⬸', 'ʃ', 'ȇ', '←', '⅓', '⮌', '⇥', 'η', '➦', 'Ô', '⬊', '℉', '⊥', 'á', 'ŉ', '⊚', '–', 'Ā', '∅', 'Ć', '∎', '⤸', '⦁', 'ē', 'ί', 'õ', 'ᴱ', 'υ', 'ß', '◡', 'È', '∣', 'Δ', 'ᴙ', 'ò', '⊢', 'κ', '☓', 'Ề', 'Θ', 'ä', '﹀', '☆', 'Ò', '˃', 'à', 'Ê', 'ʰ', 'Ğ', '’', '→', '®', '●', '⁺', 'Ţ', 'Ż', '̓', '▼', 'Ể', 'ᵒ', 'Ý', 'б', '➔', 'г', '∴', '⅔', '⬈', 'Ō', '∊', 'Π', 'Ⅷ', 'Ñ', '➝', 'É', 'Ł', 'ó', '∉', 'Ø', 'Ü', '⋮', 'ĺ', '≣', '∼', '↱', 'í', 'Ⅹ', 'ę', '⋯', 'с', '╎', '⤦', '⊼', 'ȧ', '∝', '⤻', 'ξ', 'š', '▾', 'γ', '¡', '⊳', 'д', '⁷', 'ж', '➧', 'ᴰ', '‧', '∘', 'ž', 'Ȯ', 'Ⅺ']
+CTLABELS = [' ','!','"','#','$','%','&','\'','(',')','*','+',',','-','.','/','0','1','2','3','4','5','6','7','8','9',':',';','<','=','>','?','@','A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','Q','R','S','T','U','V','W','X','Y','Z','[','\\',']','^','_','`','a','b','c','d','e','f','g','h','i','j','k','l','m','n','o','p','q','r','s','t','u','v','w','x','y','z','{','|','}','~']
+
+
+def decode(idxs):
+    s = ''
+    for idx in idxs:
+        if idx < len(CTLABELS):
+            s += CTLABELS[idx]
+        else:
+            return s
+    return s
+
+
+def encode(word):
+    s = []
+    max_word_len = 25
+    for i in range(max_word_len):
+        if i < len(word):
+            char=word[i]
+            idx = CTLABELS.index(char)
+            s.append(idx)
+        else:
+            s.append(96)
+    return s
+
 
 tensor_transforms = transforms.Compose([
                 transforms.ToTensor(),
@@ -211,7 +243,89 @@ def main(args):
         accelerator.init_trackers("dit4sr")
 
     pipeline = load_dit4sr_pipeline(args, accelerator)
- 
+
+
+
+    # load SAText annotation for gt prompting 
+    if args.satext_ann_path is not None:
+        model_H, model_W = 512, 512 
+        # load json 
+        json_path = args.satext_ann_path
+        with open(json_path, 'r') as f:
+            json_data = json.load(f)
+            json_data = sorted(json_data.items())
+        val_gt_json = {}
+        for idx, (img_id, img_anns) in enumerate(json_data):
+            anns = img_anns['0']['text_instances']
+            boxes=[]
+            texts=[]
+            text_encs=[]
+            polys=[]
+            prompts=[]
+            for ann in anns:
+                # process text 
+                text = ann['text']
+                count=0
+                for char in text:
+                    # only allow OCR english vocab: range(32,127)
+                    if 32 <= ord(char) and ord(char) < 127:
+                        count+=1
+                        # print(char, ord(char))
+                if count == len(text) and count < 26:
+                    texts.append(text)
+                    text_encs.append(encode(text))
+                    assert text == decode(encode(text)), 'check text encoding !'
+                else:
+                    continue
+                # process box
+                box_xyxy = ann['bbox']
+                x1,y1,x2,y2 = box_xyxy
+                box_xywh = [ x1, y1, x2-x1, y2-y1 ]
+                box_xyxy_scaled = list(map(lambda x: x/model_H, box_xyxy))  # scale box coord to [0,1]
+                x1,y1,x2,y2 = box_xyxy_scaled 
+                box_cxcywh = [(x1+x2)/2, (y1+y2)/2, x2-x1, y2-y1]   # xyxy -> cxcywh
+                # # select box format
+                # if cfg.dataset.data_args['bbox_format'] == 'xywh_unscaled':
+                #     processed_box = box_xywh
+                #     processed_box = list(map(lambda x: int(x), processed_box))
+                # elif cfg.dataset.data_args['bbox_format'] == 'xyxy_scaled':
+                #     processed_box = box_xyxy_scaled
+                #     processed_box = list(map(lambda x: round(x,4), processed_box))
+                # elif cfg.dataset.data_args['bbox_format'] == 'cxcywh_scaled':
+                #     processed_box = box_cxcywh
+                #     processed_box = list(map(lambda x: round(x,4), processed_box))
+                processed_box = box_cxcywh
+                processed_box = list(map(lambda x: round(x,4), processed_box))
+                boxes.append(processed_box)
+                # process polygon
+                poly = np.array(ann['polygon']).astype(np.int32)    # 16 2
+                # scale poly
+                poly_scaled = poly / np.array([model_W, model_H])
+                polys.append(poly_scaled)
+            # check is anns are properly processed
+            assert len(boxes) == len(texts) == len(text_encs) == len(polys), f" Check len"
+            if len(boxes) == 0 or len(polys) == 0:
+                    continue
+            # process prompt
+            caption = [f'"{txt}"' for txt in texts]
+            # prompt = f"A high-quality photo containing the word {', '.join(caption) }."
+            # if cfg.prompter_args.prompt_style == 'CAPTION':
+            #     prompt = f"A realistic scene where the texts {', '.join(caption) } appear clearly on signs, boards, buildings, or other objects."
+            # elif cfg.prompter_args.prompt_style == 'TAG':
+            #     prompt = f"{', '.join(caption)}"
+            # if cfg.prompter_args.use_llava_prompt:
+            #     prompt = llava_dic[img_id]
+            prompt = f"A realistic scene where the texts {', '.join(caption) } appear clearly on signs, boards, buildings, or other objects."
+            prompts.append(prompt)
+            val_gt_json[img_id] = {
+                'boxes': boxes,
+                'texts': texts,
+                'text_encs': text_encs,
+                'polys': polys,
+                'gtprompts': prompts
+            }
+
+
     if accelerator.is_main_process:
         generator = torch.Generator(device=accelerator.device)
         if args.seed is not None:
@@ -221,14 +335,30 @@ def main(args):
             image_names = sorted(glob.glob(f'{args.image_path}/*.*'))
         else:
             image_names = [args.image_path]
-
+        image_names = sorted(image_names)
+        print(f'Number of testing images: {len(image_names)}')
         for image_idx, image_name in enumerate(image_names[:]):
-            print(f'================== process {image_idx} imgs... ===================')
-            validation_image = Image.open(image_name).convert("RGB")
-            validation_prompt = process_llava(validation_image)
-            validation_prompt += ' ' + args.added_prompt # clean, extremely detailed, best quality, sharp, clean
-            negative_prompt = args.negative_prompt #dirty, messy, low quality, frames, deformed, 
             
+            # img id 
+            img_id = image_name.split('/')[-1].split('.')[0]
+            img_ann = val_gt_json[img_id]
+            gt_prompt = img_ann['gtprompts'][0]
+            print(f'================== processing {image_idx} img: {img_id} ===================')
+
+            # read img
+            validation_image = Image.open(image_name).convert("RGB")
+
+            # process prompt 
+            validation_prompt = process_llava(validation_image)
+            if args.use_satext_gt_prompt:
+                print('Using SAText GT prompt ...')
+                validation_prompt = gt_prompt
+            validation_prompt += ' ' + args.added_prompt # clean, extremely detailed, best quality, sharp, clean
+            if args.use_null_prompt:
+                validation_prompt = ''
+            negative_prompt = args.negative_prompt #dirty, messy, low quality, frames, deformed, 
+
+            # save prompt
             if args.save_prompts:
                 txt_save_path = f"{txt_path}/{os.path.basename(image_name).split('.')[0]}.txt"
                 file = open(txt_save_path, "w")
@@ -239,7 +369,7 @@ def main(args):
             ori_width, ori_height = validation_image.size
             resize_flag = False
             rscale = args.upscale
-            if ori_width < args.process_size//rscale or ori_height < args.process_size//rscale:
+            if ori_width < args.process_size//rscale or ori_height < args.process_size//rscale: # f
                 scale = (args.process_size//rscale)/min(ori_width, ori_height)
                 tmp_image = validation_image.resize((int(scale*ori_width), int(scale*ori_height)),Image.BICUBIC)
 
@@ -325,6 +455,12 @@ if __name__ == "__main__":
         default=None,
         help="Variant of the model files of the pretrained model identifier from huggingface.co/models, 'e.g.' fp16",
     )
+
+    # pho
+    parser.add_argument("--satext_ann_path", type=str)
+    parser.add_argument("--use_satext_gt_prompt", action='store_true')
+    parser.add_argument("--use_null_prompt", action='store_true')
+
     args = parser.parse_args()
     main(args)
 

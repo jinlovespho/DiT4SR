@@ -161,6 +161,7 @@ class FeedForwardControl(nn.Module):
                 hidden_states, hidden_states_control_org = hidden_states.chunk(2, dim=1)
                 B, N, C = hidden_states.shape
                 h = w = int(np.sqrt(N))
+                # breakpoint()
                 assert h * w == N
                 hidden_states_control = hidden_states_control_org.reshape(B, h, w, C).permute(0, 3, 1, 2)
                 hidden_states_control = self.control_conv(hidden_states_control)
@@ -168,6 +169,7 @@ class FeedForwardControl(nn.Module):
                 hidden_states = hidden_states + 1.2 * hidden_states_control # TODO: add control signal, better change to 1.0 when training
                 hidden_states = torch.cat([hidden_states, hidden_states_control_org], dim=1)
         return hidden_states
+
 
 
 logger = logging.get_logger(__name__)
