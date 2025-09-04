@@ -191,3 +191,4 @@ cython_debug/
 # pho
 wandb/
 results_vis/
+*.jpg

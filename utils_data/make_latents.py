@@ -39,15 +39,16 @@ vae.requires_grad_(False)
 vae.to(device)
 
 for img_name in tqdm(img_name_list[args.start_num:args.end_num]):
-    if os.path.exists(os.path.join(img_save_folder, img_name.replace('png', 'pt'))):
-        continue
+    # if os.path.exists(os.path.join(img_save_folder, img_name.replace('png', 'pt'))):
+    #     continue
     img_path = os.path.join(img_folder, img_name)
     img = Image.open(img_path).convert('RGB')
+    breakpoint()
     img = img_preproc(img)
     img = img * 2.0 - 1.0
-    img = img.unsqueeze(0)
+    img = img.unsqueeze(0)      # 1 3 512 512 
     img = img.to(device)
     with torch.no_grad():
-        latents = vae.encode(img).latent_dist.sample()
+        latents = vae.encode(img).latent_dist.sample()  # 1 16 64 64 
         latents = (latents - vae.config.shift_factor)  * vae.config.scaling_factor
     torch.save(latents.clone(), os.path.join(img_save_folder, img_name.replace('png', 'pt')))

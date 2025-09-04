@@ -18,6 +18,7 @@ class PairedCaptionDataset(data.Dataset):
     ):
         super(PairedCaptionDataset, self).__init__()
 
+        # breakpoint()
         self.null_text_ratio = null_text_ratio
         self.lr_list = []
         self.gt_list = []
@@ -55,7 +56,7 @@ class PairedCaptionDataset(data.Dataset):
 
     def __getitem__(self, index):
 
-       
+
         gt_path = self.gt_list[index]
         gt_latent = torch.load(gt_path)
         

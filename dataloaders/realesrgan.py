@@ -14,8 +14,7 @@ from basicsr.data.degradations import circular_lowpass_kernel, random_mixed_kern
 from basicsr.utils import DiffJPEG, USMSharp, img2tensor, tensor2img
 from basicsr.utils.img_process_util import filter2D
 from basicsr.data.degradations import random_add_gaussian_noise_pt, random_add_poisson_noise_pt
-from torchvision.transforms.functional import (adjust_brightness, adjust_contrast, adjust_hue, adjust_saturation,
-                                               normalize, rgb_to_grayscale)
+from torchvision.transforms.functional import adjust_brightness, adjust_contrast, adjust_hue, adjust_saturation, normalize, rgb_to_grayscale
 
 cur_path = os.path.dirname(os.path.abspath(__file__))
 
@@ -53,6 +52,8 @@ def opt_parse(opt_path):
 
 class RealESRGAN_degradation(object):
     def __init__(self, opt_path='', device='cpu'):
+
+        breakpoint()
         self.opt = opt_parse(opt_path)
         self.device = device #torch.device('cpu')
         optk = self.opt['kernel_info']       
@@ -299,5 +300,7 @@ class RealESRGAN_degradation(object):
         img_lq = torch.clamp((out * 255.0).round(), 0, 255) / 255.
 
         return img_gt, img_lq
-
+    
+    def __len__(self) -> int:
+        return len(self.image_files)
 

@@ -31,6 +31,7 @@ args_training_dataset['gt_path'] = args.gt_path
 #################### REALESRGAN SETTING ###########################
 args_training_dataset['queue_size'] = 160
 args_training_dataset['crop_size'] =  512
+args_training_dataset['image_type'] = 'png'
 args_training_dataset['io_backend'] = {}
 args_training_dataset['io_backend']['type'] = 'disk'
 
@@ -61,7 +62,7 @@ train_dataloader = torch.utils.data.DataLoader(
     train_dataset,
     shuffle=False,
     batch_size=batch_size,
-    num_workers=11,
+    num_workers=0,
     drop_last=True,
 )
 
@@ -98,6 +99,7 @@ import random
 import torch.nn.functional as F
 
 def realesrgan_degradation(batch,  args_degradation, use_usm=True, sf=4, resize_lq=True):
+    breakpoint()
     jpeger = DiffJPEG(differentiable=False).cuda()
     usm_sharpener = USMSharp().cuda()  # do usm sharpening
     im_gt = batch['gt'].cuda()
@@ -256,6 +258,7 @@ step = len(img_list)
 with torch.no_grad():
     for epoch in tqdm(range(epochs)):
         for num_batch, batch in enumerate(train_dataloader):
+            breakpoint()
             lr_batch, gt_batch = realesrgan_degradation(batch, args_degradation=args_degradation)
             sr_bicubic_batch = F.interpolate(lr_batch, size=(gt_batch.size(-2), gt_batch.size(-1)), mode='bicubic',)
 
