@@ -70,7 +70,6 @@ with open(txt_save_path, 'a') as file:
             return_tensors="pt",
         )
         inputs = inputs.to("cuda")
-
         # Inference: Generation of the output
         generated_ids = model.generate(**inputs, max_new_tokens=128)
         generated_ids_trimmed = [
@@ -83,7 +82,7 @@ with open(txt_save_path, 'a') as file:
         print('VLM OUTPUT: ', output_text[0])
 
         file.write(f'GT TEXT: {gt_prompt}\n')
-        clean_text = output_text[0].replace('\n', " ")
+        clean_text = output_text[0].replace('\n', "")
         file.write(f"VLM OUTPUT: {clean_text}\n\n")
 
         # breakpoint()

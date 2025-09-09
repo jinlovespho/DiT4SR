@@ -33,7 +33,7 @@ class LLavaAgent:
         self.tokenizer = tokenizer
         self.context_len = context_len
         # self.qs = 'Describe this image and its style in a very detailed manner.'
-        self.qs = 'Please describe the actual objects in the image in a very detailed manner. Please do not include descriptions related to the focus and bokeh of this image. Please do not include descriptions like the background is blurred.'
+        self.qs = 'Please describe the actual objects and the texts in the image in a very detailed manner. Please do not include descriptions related to the focus and bokeh of this image. Please do not include descriptions like the background is blurred.'
         self.conv_mode = conv_mode
 
         if self.model.config.mm_use_im_start_end:
@@ -73,10 +73,17 @@ class LLavaAgent:
         bs = len(imgs)
         input_ids = self.input_ids.repeat(bs, 1)
         img_tensor_list = []
-        for image in imgs:
-            _image_tensor = self.image_processor.preprocess(image, return_tensors='pt')['pixel_values'][0]
-            img_tensor_list.append(_image_tensor)
-        image_tensor = torch.stack(img_tensor_list, dim=0).half().to(self.device)
+        if isinstance(imgs, list):
+            for image in imgs:
+                _image_tensor = self.image_processor.preprocess(image, return_tensors='pt')['pixel_values'][0]
+                img_tensor_list.append(_image_tensor)
+            image_tensor = torch.stack(img_tensor_list, dim=0).half().to(self.device)
+        else:
+            # imgs is already a tensor (B, C, H, W)
+            if imgs.dim() == 3:
+                # add batch dimension if needed
+                imgs = imgs.unsqueeze(0)
+            image_tensor = imgs.half().to(self.device)
         stop_str = self.conv.sep if self.conv.sep_style != SeparatorStyle.TWO else self.conv.sep2
 
         with torch.inference_mode():
@@ -112,11 +119,4 @@ if __name__ == '__main__':
     img = [Image.open('/data2/cjy/RealDeg/real_scene_data/Old_photo_resize/0.jpg'), Image.open('/data2/cjy/RealDeg/real_scene_data/Old_photo_resize/0.jpg')]
     
     caption = llava_agent.gen_image_caption(img, qs='Describe this image and its style in a very detailed manner.')
-#     tokenizer = CLIPTokenizer.from_pretrained(
-#     '/data/jy/Instruct_Face_restoration/checkpoints/blipdiffusion', subfolder="tokenizer", revision=None
-# )
     print(caption)
-    # ipdb.set_trace()
-    # # ipdb.set_trace()
-    # tokenized_prompt = tokenizer('The image features a man with a prominent nose, a thin mustache, and a prominent chin. He has a strong jawline and a prominent forehead. The man is wearing a green shirt and appears to be staring directly into the camera. The close-up shot of his face showcases his distinct facial features, making it a striking and memorable portrait.',
-    #                                   padding="max_length",truncation=True,max_length=43,return_tensors="pt",)

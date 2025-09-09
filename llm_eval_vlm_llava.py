@@ -12,7 +12,7 @@ model = AutoModelForCausalLM.from_pretrained(
     device_map="auto"
 )
 
-model_sizes = [13, 7]
+model_sizes = [7]
 
 for model_size in model_sizes:
 
@@ -97,7 +97,10 @@ for model_size in model_sizes:
         print("thinking content:", thinking_content)
         print("content:", content)
 
-        decision = int(content)
+        try:
+            decision = int(content)
+        except ValueError:
+            decision = 3  # default to Incorrect if output isn't a number
         if decision == 1:
             count_one += 1 
         elif decision == 2:

@@ -1,3 +1,4 @@
+import re
 import torch 
 from diffusers.utils.torch_utils import is_compiled_module
 
@@ -147,3 +148,37 @@ def get_sigmas(timesteps, accelerator, noise_scheduler_copy, n_dim=4, dtype=torc
         while len(sigma.shape) < n_dim:
             sigma = sigma.unsqueeze(-1)
         return sigma
+
+
+def remove_focus_sentences(text):
+    # 使用正则表达式按照 . ? ! 分割，并且保留分隔符本身
+    # re.split(pattern, string) 如果 pattern 中带有捕获组()，分隔符也会保留在结果列表中
+    prohibited_words = ['focus', 'focal', 'prominent', 'close-up', 'black and white', 'blur', 'depth', 'dense', 'locate', 'position']
+    parts = re.split(r'([.?!])', text)
+    
+    filtered_sentences = []
+    i = 0
+    while i < len(parts):
+        # sentence 可能是句子主体，punctuation 是该句子结尾的标点
+        sentence = parts[i]
+        punctuation = parts[i+1] if (i+1 < len(parts)) else ''
+
+        # 组合为完整句子，避免漏掉结尾标点
+        full_sentence = sentence + punctuation
+        
+        full_sentence_lower = full_sentence.lower()
+        skip = False
+        for word in prohibited_words:
+            if word.lower() in full_sentence_lower:
+                skip = True
+                break
+        
+        # 如果该句子不包含任何禁用词，则保留
+        if not skip:
+            filtered_sentences.append(full_sentence)
+        
+        # 跳过已经处理的句子和标点
+        i += 2
+    
+    # 根据需要选择如何重新拼接；这里去掉多余空格并直接拼接
+    return "".join(filtered_sentences).strip()

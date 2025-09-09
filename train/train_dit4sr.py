@@ -33,7 +33,7 @@ from diffusers import (
     StableDiffusion3Pipeline,
 )
 
-
+from diffusers.image_processor import VaeImageProcessor
 from diffusers.training_utils import compute_density_for_timestep_sampling, compute_loss_weighting_for_sd3, free_memory, cast_training_params
 
 
@@ -47,7 +47,10 @@ from train_utils import _encode_prompt_with_t5, _encode_prompt_with_clip, encode
 
 from dataloaders.utils import realesrgan_degradation
 
+import train_utils 
+
 from torchvision.utils import save_image 
+import pyiqa
 
 logger = get_logger(__name__)
 
@@ -96,6 +99,7 @@ def main(args):
 
     # Prepare everything with our `accelerator`.
     transformer, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(models['transformer'], optimizer, train_dataloader, lr_scheduler)
+    vae_img_processor = VaeImageProcessor(vae_scale_factor=8)
 
     # We need to recalculate our total training steps as the size of the training dataloader may have changed.
     num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
@@ -106,20 +110,47 @@ def main(args):
     
     initialize.load_trackers(args, accelerator)
 
+
+    # # SR metrics
+    # metric_psnr = pyiqa.create_metric('psnr', device=accelerator.device)
+    # metric_ssim = pyiqa.create_metric('ssimc', device=accelerator.device)
+    # metric_lpips = pyiqa.create_metric('lpips', device=accelerator.device)
+    # metric_dists = pyiqa.create_metric('dists', device=accelerator.device)
+    # # metric_fid = pyiqa.create_metric('fid', device=device)
+    # metric_niqe = pyiqa.create_metric('niqe', device=accelerator.device)
+    # metric_musiq = pyiqa.create_metric('musiq', device=accelerator.device)
+    # metric_maniqa = pyiqa.create_metric('maniqa', device=accelerator.device)
+    # metric_clipiqa = pyiqa.create_metric('clipiqa', device=accelerator.device)
+
+
     # Train!
     total_batch_size = args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
 
     logger.info("***** Running training *****")
-    logger.info(f"  Model Total Params: {model_params['tot_param']/1e6:.2f}M")
-    logger.info(f"  Model Trainable Params: {model_params['train_param']/1e6:.2f}M")
-    logger.info(f"  Model Frozen Params: {model_params['frozen_param']/1e6:.2f}M")
-    logger.info(f"  Num examples = {len(train_dataloader.dataset)}")
+    logger.info("=== Model Parameters ===")
+    logger.info(f"  Total Params    : {model_params['tot_param']:,} ({model_params['tot_param']/1e6:.2f}M)")
+    logger.info(f"  Trainable Params: {model_params['train_param']:,} ({model_params['train_param']/1e6:.2f}M)")
+    logger.info(f"  Frozen Params   : {model_params['frozen_param']:,} ({model_params['frozen_param']/1e6:.2f}M)")
+
+    logger.info("=== Training Setup ===")
+    logger.info(f"  Num training samples = {len(train_dataloader.dataset)}")
+    # logger.info(f"  Num validation samples = {len(val_dataloader.dataset)}")
     logger.info(f"  Num batches each epoch = {len(train_dataloader)}")
     logger.info(f"  Num Epochs = {args.num_train_epochs}")
     logger.info(f"  Instantaneous batch size per device = {args.train_batch_size}")
     logger.info(f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}")
     logger.info(f"  Gradient Accumulation steps = {args.gradient_accumulation_steps}")
     logger.info(f"  Total optimization steps = {args.max_train_steps}")
+
+    logger.info("=== Parameter Names ===")
+    logger.info(f"  Frozen Params ({len(model_params['frozen_param_names'])}):")
+    for name in model_params['frozen_param_names']:
+        logger.info(f" FROZEN - {name}")
+    logger.info(f"  Trainable Params ({len(model_params['train_param_names'])}):")
+    for name in model_params['train_param_names']:
+        logger.info(f" TRAINING - {name}")
+
+
     global_step = 0
     first_epoch = 0
 
@@ -129,7 +160,7 @@ def main(args):
             path = os.path.basename(args.resume_from_checkpoint)
         else:
             # Get the most recent checkpoint
-            dirs = os.listdir(args.output_dir)
+            dirs = os.listdir(f'{args.output_dir}/{args.tracker_run_name}')
             dirs = [d for d in dirs if d.startswith("checkpoint")]
             dirs = sorted(dirs, key=lambda x: int(x.split("-")[1]))
             path = dirs[-1] if len(dirs) > 0 else None
@@ -142,7 +173,7 @@ def main(args):
             initial_global_step = 0
         else:
             accelerator.print(f"Resuming from checkpoint {path}")
-            accelerator.load_state(os.path.join(args.output_dir, path))
+            accelerator.load_state(os.path.join(args.output_dir, args.tracker_run_name, path))
             global_step = int(path.split("-")[1])
 
             initial_global_step = global_step
@@ -150,10 +181,9 @@ def main(args):
     else:
         initial_global_step = 0
 
+
     progress_bar = tqdm(range(0, args.max_train_steps), initial=initial_global_step, desc="Steps", disable=not accelerator.is_local_main_process,)
     free_memory()
-
-
     image_logs = None
     for epoch in range(first_epoch, args.num_train_epochs):
         for step, batch in enumerate(train_dataloader):
@@ -165,38 +195,42 @@ def main(args):
                 lq = batch['lq']
                 text = batch['text']
                 text_enc = batch['text_enc']
+                hq_prompt = batch['hq_prompt']
+                lq_prompt = batch['lq_prompt']
                 bbox = batch['bbox']
                 poly = batch['poly']
                 img_id = batch['img_id']
-
-                save_image(gt, './img_gt.jpg')
-                save_image(lq, './img_lq.jpg')
-
+                # save_image(gt, './img_gt.jpg')
+                # save_image(lq, './img_lq.jpg')
 
             with accelerator.accumulate(transformer):
 
                 if args.data_name == 'satext':
-                        
-                    # image(hq,lq) vae encoding
                     with torch.no_grad():
-                        # hq
-                        gt = gt * 2.0 - 1.0 
-                        hq_latents = models['vae'].encode(gt).latent_dist.sample() 
-                        model_input = (hq_latents - models['vae'].config.shift_factor) * models['vae'].config.scaling_factor
-                        # lq 
-                        lq = lq * 2.0 - 1.0
-                        lq_latents = models['vae'].encode(lq).latent_dist.sample()
-                        controlnet_image = (lq_latents - models['vae'].config.shift_factor) * models['vae'].config.scaling_factor
+                        # hq vae encoding
+                        gt = gt * 2.0 - 1.0 # b 3 512 512 
+                        hq_latents = models['vae'].encode(gt).latent_dist.sample()  # b 16 64 64
+                        model_input = (hq_latents - models['vae'].config.shift_factor) * models['vae'].config.scaling_factor    # b 16 64 64 
+                        # lq vae encoding
+                        lq = lq * 2.0 - 1.0 # b 3 512 512 
+                        lq_latents = models['vae'].encode(lq).latent_dist.sample()  # b 16 64 64 
+                        controlnet_image = (lq_latents - models['vae'].config.shift_factor) * models['vae'].config.scaling_factor   # b 16 64 64 
                         controlnet_image = controlnet_image.to(dtype=weight_dtype)
-
-                    # text encoding
+                        # load caption
+                        if args.load_precomputed_caption:
+                            hq_prompt = hq_prompt 
+                        else:
+                            # vlm captioner
+                            lq_tmp = F.interpolate(lq, size=(336, 336), mode="bilinear", align_corners=False)
+                            hq_prompt = models['vlm_agent'].gen_image_caption(lq_tmp)
+                            hq_prompt = [train_utils.remove_focus_sentences(p) for p in hq_prompt]
+                        # encode prompt 
+                        prompt_embeds, pooled_prompt_embeds = encode_prompt(models['text_encoders'], models['tokenizers'], hq_prompt, 77)
+                        prompt_embeds = prompt_embeds.to(model_input.dtype)                 # b 154 4096
+                        pooled_prompt_embeds = pooled_prompt_embeds.to(model_input.dtype)   # b 2048
                 else:
                     model_input = batch["pixel_values"].to(dtype=weight_dtype)
                     controlnet_image = batch["conditioning_pixel_values"].to(dtype=weight_dtype)
-
-
-
-                breakpoint()
 
                 # image_embedding = controlnet_image.view(controlnet_image.shape[0], 16, -1)
                 # pad_tensor = torch.zeros(controlnet_image.shape[0], 77 - image_embedding.shape[1], 4096).to(image_embedding.device, dtype=weight_dtype)
@@ -219,18 +253,10 @@ def main(args):
 
                 # Add noise according to flow matching.
                 # zt = (1 - texp) * x + texp * z1
-                sigmas = get_sigmas(timesteps, accelerator, models['noise_scheduler_copy'], n_dim=model_input.ndim, dtype=model_input.dtype)
-                noisy_model_input = (1.0 - sigmas) * model_input + sigmas * noise
-                # input_model_input = torch.cat([noisy_model_input, controlnet_image], dim = 1)
-
-                # Get the text embedding for conditioning
-                # prompts = compute_text_embeddings(batch, text_encoders, tokenizers)
-                prompt_embeds = batch["prompt_embeds"].to(dtype=model_input.dtype)
-                pooled_prompt_embeds = batch["pooled_prompt_embeds"].to(dtype=model_input.dtype)
-                # prompt_embeds = torch.cat([prompt_embeds, image_embedding], dim=-2)
-                # breakpoint()
+                sigmas = get_sigmas(timesteps, accelerator, models['noise_scheduler_copy'], n_dim=model_input.ndim, dtype=model_input.dtype)    # b 1 1 1
+                noisy_model_input = (1.0 - sigmas) * model_input + sigmas * noise   # b 16 64 64 
                 # Predict the noise residual
-                model_pred = transformer(   
+                model_pred = transformer(                       # b 16 64 64
                     hidden_states=noisy_model_input,            # b 16 64 64 
                     controlnet_image=controlnet_image,          # b 16 16 16  
                     timestep=timesteps,                         # b
@@ -241,15 +267,15 @@ def main(args):
 
                 # Follow: Section 5 of https://arxiv.org/abs/2206.00364.
                 # Preconditioning of the model outputs.
-                if args.precondition_outputs:
-                    model_pred = model_pred * (-sigmas) + noisy_model_input
+                if args.precondition_outputs:   # t
+                    model_pred = model_pred * (-sigmas) + noisy_model_input # b 16 64 64
 
                 # these weighting schemes use a uniform timestep sampling
                 # and instead post-weight the loss
-                weighting = compute_loss_weighting_for_sd3(weighting_scheme=args.weighting_scheme, sigmas=sigmas)
+                weighting = compute_loss_weighting_for_sd3(weighting_scheme=args.weighting_scheme, sigmas=sigmas)   # b 1 1 1
 
                 # flow matching loss
-                if args.precondition_outputs:
+                if args.precondition_outputs:   # t
                     target = model_input
                 else:
                     target = noise - model_input
@@ -277,9 +303,10 @@ def main(args):
 
                 if accelerator.is_main_process:
                     if global_step % args.checkpointing_steps == 0:
+                        ckpt_save_path = f'{args.output_dir}/{args.tracker_run_name}'
                         # _before_ saving state, check if this save would set us over the `checkpoints_total_limit`
                         if args.checkpoints_total_limit is not None:
-                            checkpoints = os.listdir(args.output_dir)
+                            checkpoints = os.listdir(ckpt_save_path)
                             checkpoints = [d for d in checkpoints if d.startswith("checkpoint")]
                             checkpoints = sorted(checkpoints, key=lambda x: int(x.split("-")[1]))
 
@@ -294,21 +321,34 @@ def main(args):
                                 logger.info(f"removing checkpoints: {', '.join(removing_checkpoints)}")
 
                                 for removing_checkpoint in removing_checkpoints:
-                                    removing_checkpoint = os.path.join(args.output_dir, removing_checkpoint)
+                                    removing_checkpoint = os.path.join(ckpt_save_path, removing_checkpoint)
                                     shutil.rmtree(removing_checkpoint)
 
-                        save_path = os.path.join(args.output_dir, f"checkpoint-{global_step}")
+                        save_path = os.path.join(args.output_dir, args.tracker_run_name, f"checkpoint-{global_step}")
                         accelerator.save_state(save_path)
                         logger.info(f"Saved state to {save_path}")
 
-                    # if args.validation_prompt is not None and global_step % args.validation_steps == 0:
-                    #     image_logs = log_validation(
-                    #         transformer,
-                    #         args,
-                    #         accelerator,
-                    #         weight_dtype,
-                    #         global_step,
-                    #     )
+                    if global_step==1 or global_step % args.val_every_step == 0:
+                        # visualize the restored image from the transformer output
+                        with torch.no_grad():
+                            # Option A: precondition_outputs=True → model_pred ≈ denoised latents
+                            restored_latents = model_pred
+
+                            # Option B: precondition_outputs=False → need to reconstruct denoised latents
+                            if not args.precondition_outputs:
+                                restored_latents = noisy_model_input - sigmas * model_pred
+
+                            # Decode latents into images
+                            restored_imgs = models['vae'].decode(restored_latents).sample
+                            restored_imgs = vae_img_processor.postprocess(restored_imgs, output_type="pil")  
+
+                            # Save as PNG
+                            val_save_path = f'{args.output_dir}/{args.tracker_run_name}/restored_img'
+                            os.makedirs(val_save_path, exist_ok=True)
+                            val_save_imgs = zip(restored_imgs, img_id)
+                            for res_img, id in val_save_imgs:
+                                res_img.save(f'{val_save_path}/step{global_step}_{id}.png')              
+
 
             logs = {"loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
             progress_bar.set_postfix(**logs)
@@ -666,9 +706,13 @@ if __name__ == "__main__":
     parser.add_argument("--tracker_run_name", type=str)
     parser.add_argument('--data_name', type=str)
     parser.add_argument('--data_path', type=str)
+    parser.add_argument('--hq_prompt_path', type=str)
+    parser.add_argument('--lq_prompt_path', type=str)
     parser.add_argument('--vae_model_name_or_path', type=str)
     parser.add_argument('--finetune', type=str)
     parser.add_argument('--val_batch_size', type=int)
+    parser.add_argument('--load_precomputed_caption', action='store_true')
+    parser.add_argument('--val_every_step', type=int)
     
     
     args = parser.parse_args()

@@ -191,4 +191,5 @@ cython_debug/
 # pho
 wandb/
 results_vis/
+train_result/
 *.jpg

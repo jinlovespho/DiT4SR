@@ -21,8 +21,10 @@ assert len(pred_txts) == len(gt_txts), 'check number of pred and gt txts!'
 # pred_txts = pred_txts[:3]
 # gt_txts = gt_txts[:3]
 
-
-timesteps = [999, 979, 958, 938, 917, 897, 877, 856, 836, 816, 795, 775, 754, 734, 714, 693, 673, 652, 632, 612, 591, 571, 550, 530, 510, 489, 469, 449, 428, 408, 387, 367, 347, 326, 306, 285, 265, 245, 224, 204, 183, 163, 143, 122, 102, 82, 61, 41, 20, 0]
+# all 50 steps
+# timesteps = [999, 979, 958, 938, 917, 897, 877, 856, 836, 816, 795, 775, 754, 734, 714, 693, 673, 652, 632, 612, 591, 571, 550, 530, 510, 489, 469, 449, 428, 408, 387, 367, 347, 326, 306, 285, 265, 245, 224, 204, 183, 163, 143, 122, 102, 82, 61, 41, 20, 0]
+# timesteps = [999, 958, 917, 877, 836, 795, 754, 714, 673, 632, 591, 550, 510, 469, 428, 387, 347, 306, 265, 224, 183, 143, 102, 61, 20]
+timesteps = [754, 714, 673, 632, 591, 550]
 
 for t in timesteps:
 
@@ -78,20 +80,22 @@ for t in timesteps:
         gt_text = gt_dict[t]
         vlm_output = pred_dict[t]
         
-
         # prepare the model input
         prompt = f"""
         Ground truth text: "{gt_text}"
         VLM OCR output: "{vlm_output}"
 
-        Step 1: Analyze the VLM OCR output and identify the text it extracted from the entire VLM output.
-        Step 2: Compare the extracted text with the ground truth.
-        Step 3: If you cannot identify the extracted text from the VLM OCR output, classify it as Incorrect.
+        Step 1: Extract the text content from the VLM OCR output.
+        Step 2: Compare the extracted text with the ground truth, considering:
+        - Word order does NOT matter.
+        - Compare based only on the set of unique words in the ground truth.
+        - Ignore capitalization, punctuation, and extra/missing spaces.
+        - Small typos still count as matches.
 
         Categories:
-        1 — Correct: the OCR output exactly matches the ground truth.
-        2 — Slightly correct: minor differences (typos, extra/missing spaces) but mostly correct.
-        3 — Incorrect: largely wrong, does not match, is empty, or the text cannot be identified.
+        1 — Correct: all unique ground truth words appear in the OCR output (ignoring order, case, spacing, typos).
+        2 — Slightly correct (partially correct): at least one but not all unique words match.
+        3 — Incorrect: no words match, or the output is largely wrong, unrelated, or empty.
 
         Answer with only the category number (1, 2, or 3).
         """
@@ -126,7 +130,10 @@ for t in timesteps:
         print("thinking content:", thinking_content)
         print("content:", content)
 
-        decision = int(content)
+        try:
+            decision = int(content)
+        except ValueError:
+            decision = 3  # default to Incorrect if output isn't a number
         if decision == 1:
             count_one += 1 
         elif decision == 2:
@@ -138,7 +145,7 @@ for t in timesteps:
         print(count_two)
         print(count_three)
 
-        statistic_path = f'results/satext/lv3/vlm_ocr_result/statistic/tair/timestep{t}'
+        statistic_path = f'results/satext/lv3/vlm_ocr_result/statistic/tair_promptv2/timestep{t}'
         os.makedirs(statistic_path, exist_ok=True)
         with open(f'{statistic_path}/{img_id}.txt', 'w') as file:
             file.write(f'{idx} img id: {img_id} / timestep: {t}\n\n')

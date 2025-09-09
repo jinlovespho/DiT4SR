@@ -8,11 +8,14 @@ import time
 import torch
 from pathlib import Path
 from torch.utils import data as data
+import glob
 
 from basicsr.data.degradations import circular_lowpass_kernel, random_mixed_kernels
 from basicsr.data.transforms import augment
 from basicsr.utils import FileClient, get_root_logger, imfrombytes, img2tensor
 from basicsr.utils.registry import DATASET_REGISTRY
+
+
 
 def is_non_flat(image, gradient_threshold=0.2):
     if image is None:
@@ -28,7 +31,7 @@ def is_non_flat(image, gradient_threshold=0.2):
     return mean_gradient > gradient_threshold
 
 @DATASET_REGISTRY.register(suffix='basicsr')
-class RealESRGANDataset(data.Dataset):
+class PhoRealESRGANDataset(data.Dataset):
     """Modified dataset based on the dataset used for Real-ESRGAN model:
     Real-ESRGAN: Training Real-World Blind Super-Resolution with Pure Synthetic Data.
 
@@ -46,8 +49,40 @@ class RealESRGANDataset(data.Dataset):
             Please see more options in the codes.
     """
 
-    def __init__(self, opt):
-        super(RealESRGANDataset, self).__init__()
+    def __init__(self, args, mode='train'):
+        super(PhoRealESRGANDataset, self).__init__()
+
+        opt = {}
+        opt['data_name'] = args.data_name
+        opt['data_path'] = args.data_path
+        opt['hq_prompt_path'] = args.hq_prompt_path
+        opt['lq_prompt_path'] = args.lq_prompt_path 
+        opt['null_text_ratio'] = args.null_text_ratio
+        opt['val_num_img'] = 30     # manually set, but we dont use it
+        # opt['gt_path'] = args.data_path
+        opt['queue_size'] = 160
+        opt['crop_size'] =  512
+        opt['io_backend'] = {}
+        opt['io_backend']['type'] = 'disk'
+        opt['blur_kernel_size'] = 21
+        opt['kernel_list'] = ['iso', 'aniso', 'generalized_iso', 'generalized_aniso', 'plateau_iso', 'plateau_aniso']
+        opt['kernel_prob'] = [0.45, 0.25, 0.12, 0.03, 0.12, 0.03]
+        opt['sinc_prob'] = 0.1
+        opt['blur_sigma'] = [0.2, 3]
+        opt['betag_range'] = [0.5, 4]
+        opt['betap_range'] = [1, 2]
+        opt['blur_kernel_size2'] = 11
+        opt['kernel_list2'] = ['iso', 'aniso', 'generalized_iso', 'generalized_aniso', 'plateau_iso', 'plateau_aniso']
+        opt['kernel_prob2'] = [0.45, 0.25, 0.12, 0.03, 0.12, 0.03]
+        opt['sinc_prob2'] = 0.1
+        opt['blur_sigma2'] = [0.2, 1.5]
+        opt['betag_range2'] = [0.5, 4.0]
+        opt['betap_range2'] = [1, 2]
+        opt['final_sinc_prob'] = 0.8
+        opt['use_hflip'] = False
+        opt['use_rot'] = False
+
+
         self.opt = opt
         self.file_client = None
         self.io_backend_opt = opt['io_backend']
@@ -57,7 +92,6 @@ class RealESRGANDataset(data.Dataset):
             self.crop_size = 512
         if 'image_type' not in opt:
             opt['image_type'] = 'png'
-
         # support multiple type of data: file path and meta data, remove support of lmdb
         self.paths = []
         if 'meta_info' in opt:
@@ -66,7 +100,18 @@ class RealESRGANDataset(data.Dataset):
                     self.paths = [v for v in paths]
             if 'meta_num' in opt:
                 self.paths = sorted(self.paths)[:opt['meta_num']]
-        if 'gt_path' in opt:
+        
+        # pho
+        if opt['data_name'] == 'satext':
+            from dataloaders.utils import load_data_files
+            self.paths = load_data_files(opt, mode)
+            self.null_text_ratio = opt['null_text_ratio']
+
+        if 'hq_path' in opt:
+            self.paths.extend(sorted(glob.glob(f"{opt['hq_path']}/{mode}/*.jpg")))
+
+
+        if 'gt_path' in opt:    
             if isinstance(opt['gt_path'], str):
                 self.paths.extend(sorted([str(x) for x in Path(opt['gt_path']).glob('*.'+opt['image_type'])]))
             else:
@@ -78,11 +123,11 @@ class RealESRGANDataset(data.Dataset):
                         self.paths.extend(sorted([str(x) for x in Path(opt['gt_path'][i+1]).glob('*.'+opt['image_type'])]))
                         self.paths.extend(sorted([str(x) for x in Path(opt['gt_path'][i+1]).glob('*.'+'jpg')]))
                         self.paths.extend(sorted([str(x) for x in Path(opt['gt_path'][i+1]).glob('*.'+'JPG')]))
-        if 'imagenet_path' in opt:
+        if 'imagenet_path' in opt:  # f
             class_list = os.listdir(opt['imagenet_path'])
             for class_file in class_list:
                 self.paths.extend(sorted([str(x) for x in Path(os.path.join(opt['imagenet_path'], class_file)).glob('*.'+'JPEG')]))
-        if 'face_gt_path' in opt:
+        if 'face_gt_path' in opt:   # f
             if isinstance(opt['face_gt_path'], str):
                 face_list = sorted([str(x) for x in Path(opt['face_gt_path']).glob('*.'+opt['image_type'])])
                 self.paths.extend(face_list[:opt['num_face']])
@@ -94,14 +139,14 @@ class RealESRGANDataset(data.Dataset):
                         self.paths.extend(sorted([str(x) for x in Path(opt['face_gt_path'][0]).glob('*.'+opt['image_type'])])[:opt['num_face']])
 
         # limit number of pictures for test
-        if 'num_pic' in opt:
+        if 'num_pic' in opt:    # f
             if 'val' or 'test' in opt:
                 random.shuffle(self.paths)
                 self.paths = self.paths[:opt['num_pic']]
             else:
                 self.paths = self.paths[:opt['num_pic']]
 
-        if 'mul_num' in opt:
+        if 'mul_num' in opt:     # f
             self.paths = self.paths * opt['mul_num']
             # print('>>>>>>>>>>>>>>>>>>>>>')
             # print(self.paths)
@@ -134,12 +179,24 @@ class RealESRGANDataset(data.Dataset):
 
 
     def __getitem__(self, index):
+
+
         if self.file_client is None:
             self.file_client = FileClient(self.io_backend_opt.pop('type'), **self.io_backend_opt)
 
         # -------------------------------- Load gt images -------------------------------- #
         # Shape: (h, w, c); channel order: BGR; image range: [0, 1], float32.
-        gt_path = self.paths[index]
+        data_file = self.paths[index]
+
+        gt_path = data_file['img_path']
+        text = data_file["text"]
+        hq_prompt = data_file['hq_prompt']
+        lq_prompt = data_file['lq_prompt']
+        bbox = data_file["bbox"]
+        text_enc = data_file["text_enc"]
+        img_id = data_file['img_id']
+        poly = data_file.get('poly')
+
         # avoid errors caused by high latency in reading files
         retry = 3
         while retry > 0:
@@ -156,45 +213,15 @@ class RealESRGANDataset(data.Dataset):
                 break
             finally:
                 retry -= 1
-        img_gt = imfrombytes(img_bytes, float32=True)
-        # filter the dataset and remove images with too low quality
-        img_size = os.path.getsize(gt_path)
-        img_size = img_size/1024
+        
+        img_gt = imfrombytes(img_bytes, float32=True)   # orig_H, orig_W, 3 [0,1]
 
-        while img_gt.shape[0] * img_gt.shape[1] < 384*384 or img_size<100:
-            index = random.randint(0, self.__len__()-1)
-            gt_path = self.paths[index]
-
-            time.sleep(0.1)  # sleep 1s for occasional server congestion
-            img_bytes = self.file_client.get(gt_path, 'gt')
-            img_gt = imfrombytes(img_bytes, float32=True)
-            img_size = os.path.getsize(gt_path)
-            img_size = img_size/1024
+        if np.random.uniform() < self.null_text_ratio:
+            hq_prompt = ""
+        
 
         # -------------------- Do augmentation for training: flip, rotation -------------------- #
         img_gt = augment(img_gt, self.opt['use_hflip'], self.opt['use_rot'])
-
-        # crop or pad to 400
-        # TODO: 400 is hard-coded. You may change it accordingly
-        h, w = img_gt.shape[0:2]
-        crop_pad_size = self.crop_size
-        # pad
-        if h < crop_pad_size or w < crop_pad_size:
-            pad_h = max(0, crop_pad_size - h)
-            pad_w = max(0, crop_pad_size - w)
-            img_gt = cv2.copyMakeBorder(img_gt, 0, pad_h, 0, pad_w, cv2.BORDER_REFLECT_101)
-        # crop
-        img_gt_org = img_gt
-        if img_gt.shape[0] > crop_pad_size or img_gt.shape[1] > crop_pad_size:
-            for i in range(50):
-                # randomly choose top and left coordinates
-                top = random.randint(0, h - crop_pad_size)
-                left = random.randint(0, w - crop_pad_size)
-                # top = (h - crop_pad_size) // 2 -1
-                # left = (w - crop_pad_size) // 2 -1
-                img_gt = img_gt_org[top:top + crop_pad_size, left:left + crop_pad_size, ...]
-                if is_non_flat(img_gt):
-                    break
 
         # ------------------------ Generate kernels (used in the first degradation) ------------------------ #
         kernel_size = random.choice(self.kernel_range)
@@ -256,8 +283,45 @@ class RealESRGANDataset(data.Dataset):
         kernel = torch.FloatTensor(kernel)
         kernel2 = torch.FloatTensor(kernel2)
 
-        return_d = {'gt': img_gt, 'kernel1': kernel, 'kernel2': kernel2, 'sinc_kernel': sinc_kernel, 'gt_path': gt_path}
-        return return_d
+        return img_gt, kernel, kernel2, sinc_kernel, text, hq_prompt, lq_prompt, bbox, poly, text_enc, img_id
+
 
     def __len__(self):
         return len(self.paths)
+
+
+
+def collate_fn_real(batch):
+
+    gt, kernel, kernel2, sinc_kernel, text, hq_prompt, lq_prompt, bbox, poly, text_enc, img_id  = zip(*batch)
+    # Convert lists of tensors to stacked tensors safely
+    gt = torch.stack([x.clone().detach() for x in gt])
+    # lq = torch.stack([x.clone().detach() for x in lq])
+    kernel = torch.stack([x.clone().detach() for x in kernel])
+    kernel2 = torch.stack([x.clone().detach() for x in kernel2])
+    sinc_kernel = torch.stack([x.clone().detach() for x in sinc_kernel])
+    
+    text_enc_tensor=[]
+    # preprocess text_enc
+    for i in range(len(text_enc)):
+        text_enc_tensor.append(torch.tensor(text_enc[i], dtype=torch.int32))
+
+
+    poly_tensor=[]
+    # process poly
+    for i in range(len(poly)):
+        poly_tensor.append(torch.tensor(np.array(poly[i]), dtype=torch.float32))
+    
+    return {
+            "gt": gt,                           # b 3 512 512 
+            "kernel1": kernel,                  # len(kernel)=b, kernel[0].shape: 21 21
+            "kernel2": kernel2,
+            "sinc_kernel": sinc_kernel,
+            'text': list(text),
+            'hq_prompt': list(hq_prompt),
+            'lq_prompt': list(lq_prompt),
+            'bbox': list(bbox),
+            'poly': list(poly_tensor),
+            'text_enc': list(text_enc_tensor),
+            'img_id': list(img_id)
+        }

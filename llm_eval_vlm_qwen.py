@@ -99,7 +99,10 @@ for model_size in model_sizes:
         print("thinking content:", thinking_content)
         print("content:", content)
 
-        decision = int(content)
+        try:
+            decision = int(content)
+        except ValueError:
+            decision = 3  # default to Incorrect if output isn't a number
         if decision == 1:
             count_one += 1 
         elif decision == 2:

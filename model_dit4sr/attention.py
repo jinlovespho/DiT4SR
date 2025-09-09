@@ -152,22 +152,23 @@ class FeedForwardControl(nn.Module):
             self.net.append(nn.Dropout(dropout))
 
     def forward(self, hidden_states: torch.Tensor, *args, **kwargs) -> torch.Tensor:
-        if len(args) > 0 or kwargs.get("scale", None) is not None:
+        # breakpoint()
+        if len(args) > 0 or kwargs.get("scale", None) is not None:  # f
             deprecation_message = "The `scale` argument is deprecated and will be ignored. Please remove it, as passing it will raise an error in the future. `scale` should directly be passed while calling the underlying pipeline component i.e., via `cross_attention_kwargs`."
             deprecate("scale", "1.0.0", deprecation_message)
         for i, module in enumerate(self.net):
-            hidden_states = module(hidden_states)
+            hidden_states = module(hidden_states)   
             if i == 1:
                 hidden_states, hidden_states_control_org = hidden_states.chunk(2, dim=1)
                 B, N, C = hidden_states.shape
                 h = w = int(np.sqrt(N))
                 # breakpoint()
                 assert h * w == N
-                hidden_states_control = hidden_states_control_org.reshape(B, h, w, C).permute(0, 3, 1, 2)
-                hidden_states_control = self.control_conv(hidden_states_control)
-                hidden_states_control = hidden_states_control.reshape(B, C, N).permute(0, 2, 1)
-                hidden_states = hidden_states + 1.2 * hidden_states_control # TODO: add control signal, better change to 1.0 when training
-                hidden_states = torch.cat([hidden_states, hidden_states_control_org], dim=1)
+                hidden_states_control = hidden_states_control_org.reshape(B, h, w, C).permute(0, 3, 1, 2)   # reshape to apply conv: b 1024 6144 -> b 6144 32 32 
+                hidden_states_control = self.control_conv(hidden_states_control)    # b 6144 32 32 
+                hidden_states_control = hidden_states_control.reshape(B, C, N).permute(0, 2, 1) # b 1024 6144
+                hidden_states = hidden_states + 1.0 * hidden_states_control # TODO: add control signal, better change to 1.0 when training
+                hidden_states = torch.cat([hidden_states, hidden_states_control_org], dim=1)    # b 2048 6144
         return hidden_states
 
 
@@ -273,24 +274,33 @@ class JointTransformerBlock(nn.Module):
     def forward(
         self, hidden_states: torch.FloatTensor, encoder_hidden_states: torch.FloatTensor, temb: torch.FloatTensor
     ):
-        if self.use_dual_attention:
+        # breakpoint()
+        if self.use_dual_attention: # t
             norm_hidden_states, gate_msa, shift_mlp, scale_mlp, gate_mlp, norm_hidden_states2, gate_msa2 = self.norm1(
                 hidden_states, emb=temb
-            )
+                )
         else:
-            norm_hidden_states, gate_msa, shift_mlp, scale_mlp, gate_mlp = self.norm1(hidden_states, emb=temb)
+            norm_hidden_states, gate_msa, shift_mlp, scale_mlp, gate_mlp = self.norm1(
+                hidden_states, emb=temb
+                )
 
         if self.context_pre_only:
-            norm_encoder_hidden_states = self.norm1_context(encoder_hidden_states, temb)
+            norm_encoder_hidden_states = self.norm1_context(
+                encoder_hidden_states, temb
+                )
         else:
             norm_encoder_hidden_states, c_gate_msa, c_shift_mlp, c_scale_mlp, c_gate_mlp = self.norm1_context(
                 encoder_hidden_states, emb=temb
-            )
+                )
 
+        # breakpoint()
         # Attention.
         attn_output, context_attn_output = self.attn(
             hidden_states=norm_hidden_states, encoder_hidden_states=norm_encoder_hidden_states,
         )
+        ''' attn_output: concated hq_latent and lq_latent -> b 2048 1536
+            context_attn_output: text embedding -> b 154 1536
+        '''
 
         # Process attention outputs for the `hidden_states`.
         attn_output = gate_msa.unsqueeze(1) * attn_output
@@ -302,11 +312,11 @@ class JointTransformerBlock(nn.Module):
 
         norm_hidden_states = self.norm2(hidden_states)
         norm_hidden_states = norm_hidden_states * (1 + scale_mlp[:, None]) + shift_mlp[:, None]
-        if self._chunk_size is not None:
+        if self._chunk_size is not None:    # f
             # "feed_forward_chunk_size" can be used to save memory
             ff_output = _chunked_feed_forward(self.ff, norm_hidden_states, self._chunk_dim, self._chunk_size)
-        else:
-            ff_output = self.ff(norm_hidden_states)
+        else:   # t
+            ff_output = self.ff(norm_hidden_states)     # b 2048 1536
         ff_output = gate_mlp.unsqueeze(1) * ff_output
 
         hidden_states = hidden_states + ff_output
@@ -385,74 +395,74 @@ class JointAttnProcessor2_0:
         **kwargs,
     ) -> torch.FloatTensor:
 
-        residual = hidden_states
+        residual = hidden_states    # b 2048 1536 (where hq and lq tokens are concated 1024+1024)
         
         batch_size = hidden_states.shape[0]
 
-        hidden_states, hidden_states_control = hidden_states.chunk(2, dim=1)
+        hidden_states, hidden_states_control = hidden_states.chunk(2, dim=1)    # b 1024 1536
         hidden_states_control_res = hidden_states_control
 
         # `sample` projections.
-        query = attn.to_q(hidden_states)
+        query = attn.to_q(hidden_states)    # b 1024 1536
         key = attn.to_k(hidden_states)
         value = attn.to_v(hidden_states)
 
         inner_dim = key.shape[-1]
-        head_dim = inner_dim // attn.heads
+        head_dim = inner_dim // attn.heads  # 64
 
-        query = query.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
+        query = query.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)    # b 24 1024 64 (bs head N head_dim)
         key = key.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
         value = value.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
             
-        # `control` projections.
-        query_control = attn.to_q_control(attn.to_q(hidden_states_control))
+        # `control` projections.    
+        query_control = attn.to_q_control(attn.to_q(hidden_states_control))     # b 1024 1536
         key_control = attn.to_k_control(attn.to_k(hidden_states_control))
         value_control = attn.to_v_control(attn.to_v(hidden_states_control))
 
-        query_control = query_control.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
+        query_control = query_control.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)    # b 24 1024 64
         key_control = key_control.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
         value_control = value_control.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
        
 
-        if attn.norm_q is not None:
+        if attn.norm_q is not None: # t
             query = attn.norm_q(query)
             query_control = attn.norm_q(query_control)
-        if attn.norm_k is not None:
+        if attn.norm_k is not None: # t
             key = attn.norm_k(key)
             key_control = attn.norm_k(key)
 
-        if encoder_hidden_states is not None:
+        if encoder_hidden_states is not None:   # t
                 
             # `context` projections.
-            encoder_hidden_states_query_proj = attn.add_q_proj(encoder_hidden_states)
+            encoder_hidden_states_query_proj = attn.add_q_proj(encoder_hidden_states)   # b 154 1536
             encoder_hidden_states_key_proj = attn.add_k_proj(encoder_hidden_states)
             encoder_hidden_states_value_proj = attn.add_v_proj(encoder_hidden_states)
 
-            encoder_hidden_states_query_proj = encoder_hidden_states_query_proj.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
+            encoder_hidden_states_query_proj = encoder_hidden_states_query_proj.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)  # b 24 154 64
             encoder_hidden_states_key_proj = encoder_hidden_states_key_proj.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
             encoder_hidden_states_value_proj = encoder_hidden_states_value_proj.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
 
-            if attn.norm_added_q is not None:
+            if attn.norm_added_q is not None:   # t
                 encoder_hidden_states_query_proj = attn.norm_added_q(encoder_hidden_states_query_proj)
-            if attn.norm_added_k is not None:
+            if attn.norm_added_k is not None:   # t
                 encoder_hidden_states_key_proj = attn.norm_added_k(encoder_hidden_states_key_proj)
 
             # attention
-            query = torch.cat([query, query_control, encoder_hidden_states_query_proj], dim=2)
-            key = torch.cat([key, key_control, encoder_hidden_states_key_proj], dim=2)
-            value = torch.cat([value, value_control, encoder_hidden_states_value_proj], dim=2)
+            query = torch.cat([query, query_control, encoder_hidden_states_query_proj], dim=2)  # concat hq, lq, text_emb -> 1024+1024+154 = 2202
+            key = torch.cat([key, key_control, encoder_hidden_states_key_proj], dim=2)          # b 24 2202 64
+            value = torch.cat([value, value_control, encoder_hidden_states_value_proj], dim=2)      
         
         else :
             query = torch.cat([query, query_control], dim=2)
             key = torch.cat([key, key_control], dim=2)
             value = torch.cat([value, value_control], dim=2)
             
-        hidden_states = F.scaled_dot_product_attention(query, key, value, attn_mask=attention_mask, dropout_p=0.0, is_causal=False)
-        hidden_states = hidden_states.transpose(1, 2).reshape(batch_size, -1, attn.heads * head_dim)
+        hidden_states = F.scaled_dot_product_attention(query, key, value, attn_mask=attention_mask, dropout_p=0.0, is_causal=False) # b 24 2202 64
+        hidden_states = hidden_states.transpose(1, 2).reshape(batch_size, -1, attn.heads * head_dim)    # b 2202 1536
         hidden_states = hidden_states.to(query.dtype)
 
-        if encoder_hidden_states is not None:                
-            # Split the attention outputs.
+        if encoder_hidden_states is not None:   # t                
+            # Split the output to img_tkn and txt_tkn
             hidden_states, encoder_hidden_states = (
                 hidden_states[:, : residual.shape[1]],
                 hidden_states[:, residual.shape[1] :],
@@ -461,6 +471,7 @@ class JointAttnProcessor2_0:
                 encoder_hidden_states = attn.to_add_out(encoder_hidden_states)
 
 
+        # split back to hq_latent and lq_latent
         hidden_states, hidden_states_control = hidden_states.chunk(2, dim=1)
         # TODO
         hidden_states_control = hidden_states_control + hidden_states_control_res
@@ -472,9 +483,9 @@ class JointAttnProcessor2_0:
        
         hidden_states_control = attn.to_out_control(hidden_states_control)
 
-        hidden_states = torch.cat([hidden_states, hidden_states_control], dim=1)
+        hidden_states = torch.cat([hidden_states, hidden_states_control], dim=1)    # b 2048 1536
 
-        if encoder_hidden_states is not None:
+        if encoder_hidden_states is not None:   # t
             return hidden_states, encoder_hidden_states
         else :
             return hidden_states

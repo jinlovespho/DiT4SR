@@ -13,7 +13,6 @@ from diffusers.optimization import get_scheduler
 from accelerate.utils import DistributedDataParallelKwargs, ProjectConfiguration, set_seed
 import torch
 import torch.utils 
-import dataloaders
 from dataloaders.paired_dataset_sd3_latent import PairedCaptionDataset
 
 import wandb
@@ -21,6 +20,41 @@ import wandb
 import bitsandbytes as bnb
 from model_dit4sr.transformer_sd3 import SD3Transformer2DModel
 from diffusers.training_utils import cast_training_params
+from transformers import PretrainedConfig
+
+
+# Copied from dreambooth sd3 example
+def import_model_class_from_model_name_or_path(
+    pretrained_model_name_or_path: str, revision: str, subfolder: str = "text_encoder"
+):
+    text_encoder_config = PretrainedConfig.from_pretrained(
+        pretrained_model_name_or_path, subfolder=subfolder, revision=revision
+    )
+    model_class = text_encoder_config.architectures[0]
+    if model_class == "CLIPTextModelWithProjection":
+        from transformers import CLIPTextModelWithProjection
+
+        return CLIPTextModelWithProjection
+    elif model_class == "T5EncoderModel":
+        from transformers import T5EncoderModel
+
+        return T5EncoderModel
+    else:
+        raise ValueError(f"{model_class} is not supported.")
+
+
+# Copied from dreambooth sd3 example
+def load_text_encoders(class_one, class_two, class_three, args):
+    text_encoder_one = class_one.from_pretrained(
+        args.pretrained_model_name_or_path, subfolder="text_encoder", revision=args.revision, variant=args.variant
+    )
+    text_encoder_two = class_two.from_pretrained(
+        args.pretrained_model_name_or_path, subfolder="text_encoder_2", revision=args.revision, variant=args.variant
+    )
+    text_encoder_three = class_three.from_pretrained(
+        args.pretrained_model_name_or_path, subfolder="text_encoder_3", revision=args.revision, variant=args.variant
+    )
+    return text_encoder_one, text_encoder_two, text_encoder_three
 
 
 def load_experiment_setting(args, logger):
@@ -47,49 +81,36 @@ def load_experiment_setting(args, logger):
     else:
         transformers.utils.logging.set_verbosity_error()
         diffusers.utils.logging.set_verbosity_error()
-
     # If passed along, set the training seed now.
     if args.seed is not None:
         set_seed(args.seed)
-
     # Handle the repository creation
     if accelerator.is_main_process:
         if args.output_dir is not None:
-            os.makedirs(args.output_dir, exist_ok=True)
-
+            os.makedirs(f'{args.output_dir}/{args.tracker_run_name}', exist_ok=True)
     # `accelerate` 0.16.0 will have better support for customized saving
     if version.parse(accelerate.__version__) >= version.parse("0.16.0"):
         # create custom saving & loading hooks so that `accelerator.save_state(...)` serializes in a nice format
         def save_model_hook(models, weights, output_dir):
             if accelerator.is_main_process:
                 i = len(weights) - 1
-
                 while len(weights) > 0:
                     weights.pop()
                     model = models[i]
-
                     sub_dir = "transformer"
                     model.save_pretrained(os.path.join(output_dir, sub_dir))
-
                     i -= 1
-
         def load_model_hook(models, input_dir):
             # while len(models) > 0:
                 # pop models so that they are not loaded again
             model = models.pop()
-
             load_model = SD3Transformer2DModel.from_pretrained(input_dir, subfolder="transformer") # , low_cpu_mem_usage=False, ignore_mismatched_sizes=True
-
-
             # load diffusers style into model
             model.register_to_config(**load_model.config)
-
             model.load_state_dict(load_model.state_dict())
             del load_model
-
         accelerator.register_save_state_pre_hook(save_model_hook)
         accelerator.register_load_state_pre_hook(load_model_hook)
-    
     return accelerator
 
 
@@ -98,22 +119,22 @@ def load_data(args):
 
     # breakpoint()
     if args.data_name == 'satext':
-        from basicsr.data.realesrgan_dataset import RealESRGANDataset
-        from basicsr.data.realesrgan_dataset import collate_fn_real
+        from basicsr.data.pho_realesrgan_dataset import PhoRealESRGANDataset
+        from basicsr.data.pho_realesrgan_dataset import collate_fn_real
         collate_fn = collate_fn_real
 
-        train_ds = RealESRGANDataset(args, mode='train')
-        val_ds = RealESRGANDataset(args, mode='val')
+        train_ds = PhoRealESRGANDataset(args, mode='train')
+        # val_ds = PhoRealESRGANDataset(args, mode='val')
     
     else:
         train_ds = PairedCaptionDataset(root_folder=args.root_folders, null_text_ratio=args.null_text_ratio)
-        val_ds = None 
+        # val_ds = None 
         collate_fn=None
 
     
     train_loader = torch.utils.data.DataLoader(train_ds, shuffle=True, batch_size=args.train_batch_size, num_workers=args.num_workers, collate_fn=collate_fn)
-    val_loader = torch.utils.data.DataLoader(val_ds, shuffle=False, batch_size=args.val_batch_size, num_workers=args.num_workers, collate_fn=collate_fn)
-
+    # val_loader = torch.utils.data.DataLoader(val_ds, shuffle=False, batch_size=args.val_batch_size, num_workers=args.num_workers, collate_fn=collate_fn)
+    val_loader=None
 
     return train_loader, val_loader
 
@@ -122,6 +143,7 @@ def load_data(args):
 def load_model(args, accelerator):
     from diffusers import AutoencoderKL, FlowMatchEulerDiscreteScheduler
     from model_dit4sr.transformer_sd3 import SD3Transformer2DModel
+    from transformers import CLIPTokenizer, PretrainedConfig, T5TokenizerFast
 
     models = {}
 
@@ -139,6 +161,55 @@ def load_model(args, accelerator):
     transformer = SD3Transformer2DModel.from_pretrained_local(args.transformer_model_name_or_path, subfolder="transformer", revision=args.revision, variant=args.variant)
     transformer.requires_grad_(False)
     models['transformer'] = transformer
+
+    # load tokenizer 
+    tokenizer_one = CLIPTokenizer.from_pretrained(
+        args.pretrained_model_name_or_path,
+        subfolder="tokenizer",
+        revision=args.revision,
+    )
+    tokenizer_two = CLIPTokenizer.from_pretrained(
+        args.pretrained_model_name_or_path,
+        subfolder="tokenizer_2",
+        revision=args.revision,
+    )
+    tokenizer_three = T5TokenizerFast.from_pretrained(
+        args.pretrained_model_name_or_path,
+        subfolder="tokenizer_3",
+        revision=args.revision,
+    )
+    # import correct text encoder class
+    text_encoder_cls_one = import_model_class_from_model_name_or_path(
+        args.pretrained_model_name_or_path, args.revision
+    )
+    text_encoder_cls_two = import_model_class_from_model_name_or_path(
+        args.pretrained_model_name_or_path, args.revision, subfolder="text_encoder_2"
+    )
+    text_encoder_cls_three = import_model_class_from_model_name_or_path(
+        args.pretrained_model_name_or_path, args.revision, subfolder="text_encoder_3"
+    )
+    text_encoder_one, text_encoder_two, text_encoder_three = load_text_encoders(text_encoder_cls_one, text_encoder_cls_two, text_encoder_cls_three, args)
+    text_encoder_one.requires_grad_(False)
+    text_encoder_two.requires_grad_(False)
+    text_encoder_three.requires_grad_(False)
+    text_encoder_one.eval()
+    text_encoder_two.eval()
+    text_encoder_three.eval()
+
+    tokenizers = [tokenizer_one, tokenizer_two, tokenizer_three]
+    text_encoders = [text_encoder_one, text_encoder_two, text_encoder_three]
+
+    models['tokenizers'] = tokenizers 
+    models['text_encoders'] = text_encoders 
+
+
+    # load vlm captioner 
+    if not args.load_precomputed_caption:
+        from llava.llm_agent import LLavaAgent
+        from CKPT_PTH import LLAVA_MODEL_PATH
+        llava_agent = LLavaAgent(LLAVA_MODEL_PATH, accelerator.device, load_8bit=True, load_4bit=False)
+        models['vlm_agent'] = llava_agent
+
 
     return models 
 
@@ -249,14 +320,18 @@ def set_model_device(args, accelerator, models):
     for name, model in models.items():
         if isinstance(model, torch.nn.Module):
             model = model.to(accelerator.device, dtype=weight_dtype)
+        elif isinstance(model, list):
+            if name == 'text_encoders':
+                for mod in model:
+                    mod = mod.to(accelerator.device, dtype=torch.float16)
         else:
             # leave schedulers, tokenizers, etc. as they are
             pass
 
     # Make sure the trainable params are in float32.
     if args.mixed_precision == "fp16":
-        models = [models['transformer']]
+        tmp_models = [models['transformer']]
         # only upcast trainable parameters (LoRA) into fp32
-        cast_training_params(models, dtype=torch.float32)
+        cast_training_params(tmp_models, dtype=torch.float32)
     
     return weight_dtype

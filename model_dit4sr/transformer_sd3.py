@@ -104,9 +104,9 @@ class SD3Transformer2DModel(ModelMixin, ConfigMixin, PeftAdapterMixin, FromOrigi
                     dim=self.inner_dim,
                     num_attention_heads=self.config.num_attention_heads,
                     attention_head_dim=self.config.attention_head_dim,
-                    context_pre_only=i == num_layers - 1,
+                    context_pre_only = i == num_layers - 1,
                     qk_norm=qk_norm,
-                    use_dual_attention=True if i in dual_attention_layers else False,
+                    use_dual_attention=True if i in dual_attention_layers else False,   # for a total of 24 layers, dual attention is only applied to the first 12.
                 )
                 for i in range(self.config.num_layers)
             ]
@@ -303,37 +303,38 @@ class SD3Transformer2DModel(ModelMixin, ConfigMixin, PeftAdapterMixin, FromOrigi
             If `return_dict` is True, an [`~models.transformer_2d.Transformer2DModelOutput`] is returned, otherwise a
             `tuple` where the first element is the sample tensor.
         """
-        if joint_attention_kwargs is not None:
+
+        if joint_attention_kwargs is not None:  # f
             joint_attention_kwargs = joint_attention_kwargs.copy()
             lora_scale = joint_attention_kwargs.pop("scale", 1.0)
-        else:
+        else:   # t
             lora_scale = 1.0
 
-        if USE_PEFT_BACKEND:
+        if USE_PEFT_BACKEND:    # f
             # weight the lora layers by setting `lora_scale` for each PEFT layer
             scale_lora_layers(self, lora_scale)
-        else:
+        else:   # t
             if joint_attention_kwargs is not None and joint_attention_kwargs.get("scale", None) is not None:
                 logger.warning(
                     "Passing `scale` via `joint_attention_kwargs` when not using the PEFT backend is ineffective."
                 )
 
-        height, width = hidden_states.shape[-2:]
+        height, width = hidden_states.shape[-2:]    # 64 64 
 
-        hidden_states = self.pos_embed(hidden_states)  # takes care of adding positional embeddings too.
-        temb = self.time_text_embed(timestep, pooled_projections)
-        encoder_hidden_states = self.context_embedder(encoder_hidden_states)
+        hidden_states = self.pos_embed(hidden_states)  # takes care of adding positional embeddings too.    # b 1024 1536
+        temb = self.time_text_embed(timestep, pooled_projections)   # b 1536
+        encoder_hidden_states = self.context_embedder(encoder_hidden_states)    # b 154 1536
 
         ## control_dit begin
-        controlnet_image = self.pos_embed(controlnet_image)
-        hidden_states = torch.cat([hidden_states, controlnet_image], dim=-2)
+        controlnet_image = self.pos_embed(controlnet_image) # b 16 64 64 -> apply patch and pos emb -> b 1024 1536
+        hidden_states = torch.cat([hidden_states, controlnet_image], dim=-2)    # concat in token dimension -> b 2048 1536
         ## control_dit end
         
-        for index_block, block in enumerate(self.transformer_blocks):
+        for index_block, block in enumerate(self.transformer_blocks):   # 24 blocks
             # Skip specified layers
-            is_skip = True if skip_layers is not None and index_block in skip_layers else False
+            is_skip = True if skip_layers is not None and index_block in skip_layers else False     # is_skip = False
 
-            if torch.is_grad_enabled() and self.gradient_checkpointing and not is_skip:
+            if torch.is_grad_enabled() and self.gradient_checkpointing and not is_skip: # f
 
                 def create_custom_forward(module, return_dict=None):
                     def custom_forward(*inputs):

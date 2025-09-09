@@ -25,6 +25,10 @@ from utils.wavelet_color_fix import wavelet_color_fix, adain_color_fix
 from torchvision import transforms
 import time
 
+
+from qwen_vl_utils import process_vision_info
+
+
 logger = get_logger(__name__, log_level="INFO")
 
 # unicode conversion: char <-> int
@@ -39,7 +43,7 @@ def decode(idxs):
     s = ''
     for idx in idxs:
         if idx < len(CTLABELS):
-            s += CTLABELS[idx]
+            s += CTLABELS[idx] 
         else:
             return s
     return s
@@ -71,9 +75,6 @@ elif torch.cuda.device_count() == 1:
 else:
     raise ValueError('Currently support CUDA only.')
 
-from llava.llm_agent import LLavaAgent
-from CKPT_PTH import LLAVA_MODEL_PATH
-llava_agent = LLavaAgent(LLAVA_MODEL_PATH, LLaVA_device, load_8bit=True, load_4bit=False)
 
 def remove_focus_sentences(text):
     prohibited_words = ['focus', 'focal', 'prominent', 'close-up', 'black and white', 'blur', 'depth', 'dense', 'locate', 'position']
@@ -215,11 +216,62 @@ def load_dit4sr_pipeline(args, accelerator):
     return validation_pipeline
 
 @torch.no_grad()
-def process_llava(
-    input_image):
+def process_llava(llava_agent, input_image):
     llama_prompt = llava_agent.gen_image_caption([input_image])[0]
     llama_prompt = remove_focus_sentences(llama_prompt)
     return llama_prompt
+
+@torch.no_grad()
+def process_qwen(model, processor, input_image_path):
+
+    question = "OCR this image."
+    messages = [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "image": f"{input_image_path}",
+                    },
+                    {"type": "text", "text": f"{question}"},
+                ],
+            }
+        ]
+    # Preparation for inference
+    text = processor.apply_chat_template(
+        messages, tokenize=False, add_generation_prompt=True
+    )
+    image_inputs, video_inputs = process_vision_info(messages)
+    inputs = processor(
+        text=[text],
+        images=image_inputs,
+        videos=video_inputs,
+        padding=True,
+        return_tensors="pt",
+    )
+    inputs = inputs.to("cuda")
+    # Inference: Generation of the output
+    generated_ids = model.generate(**inputs, max_new_tokens=128)
+    generated_ids_trimmed = [
+        out_ids[len(in_ids) :] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
+    ]
+    output_text = processor.batch_decode(
+        generated_ids_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False
+    )
+    clean_text = output_text[0].replace("\n", "")
+
+    return clean_text
+
+
+def process_saved_qwen(saved_caption_path, captioner_size, img_id):
+    caption_json_path = f'{saved_caption_path}/{captioner_size}b.json'
+    with open(caption_json_path, 'r', encoding='utf-8') as file:
+        anns = json.load(file)
+    ann = anns[img_id]
+    gt_text = ann['gt_text']
+    vlm_output_text = ann['vlm_output']
+    return gt_text, vlm_output_text
+
 
 def main(args):
     txt_path = os.path.join(args.output_dir, 'txt')
@@ -243,6 +295,19 @@ def main(args):
         accelerator.init_trackers("dit4sr")
 
     pipeline = load_dit4sr_pipeline(args, accelerator)
+
+
+    # load vlm
+    if args.captioner =='llava' and args.saved_caption_path is None:
+        from llava.llm_agent import LLavaAgent
+        from CKPT_PTH import LLAVA_MODEL_PATH
+        cap_agent = LLavaAgent(LLAVA_MODEL_PATH, LLaVA_device, load_8bit=True, load_4bit=False)
+
+    elif args.captioner == 'qwen' and args.saved_caption_path is None:
+        from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
+        model_size=args.captioner_size
+        vlm_model = Qwen2_5_VLForConditionalGeneration.from_pretrained(f"Qwen/Qwen2.5-VL-{model_size}B-Instruct", torch_dtype="auto", device_map="auto")
+        vlm_processor = AutoProcessor.from_pretrained(f"Qwen/Qwen2.5-VL-{model_size}B-Instruct")
 
 
 
@@ -349,7 +414,13 @@ def main(args):
             validation_image = Image.open(image_name).convert("RGB")
 
             # process prompt 
-            validation_prompt = process_llava(validation_image)
+            if args.captioner == 'llava':
+                validation_prompt = process_llava(cap_agent, validation_image)
+            elif args.captioner == 'qwen':
+                if args.saved_caption_path is not None:
+                    gt_text, validation_prompt = process_saved_qwen(args.saved_caption_path, args.captioner_size, img_id)
+                else:
+                    validation_prompt = process_qwen(vlm_model, vlm_processor, image_name)
             if args.use_satext_gt_prompt:
                 print('Using SAText GT prompt ...')
                 validation_prompt = gt_prompt
@@ -460,6 +531,9 @@ if __name__ == "__main__":
     parser.add_argument("--satext_ann_path", type=str)
     parser.add_argument("--use_satext_gt_prompt", action='store_true')
     parser.add_argument("--use_null_prompt", action='store_true')
+    parser.add_argument('--captioner', type=str, default='llava')
+    parser.add_argument('--captioner_size', type=int)
+    parser.add_argument('--saved_caption_path', type=str)
 
     args = parser.parse_args()
     main(args)

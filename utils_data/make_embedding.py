@@ -260,6 +260,7 @@ end_num = args.end_num
 print(f'===== process [{start_num}   {end_num}] =====')
 batch_size = 1
 total_tags = len(tag_lists)
+
 for i in tqdm(range(0, total_tags, batch_size)):
     # 获取当前批次的标签路径
     batch_tag_paths = tag_lists[i:i + batch_size]
@@ -271,9 +272,9 @@ for i in tqdm(range(0, total_tags, batch_size)):
         prompt_embeds_save_path = os.path.join(prompt_embeds_path, f'{basename}.pt')
         pooled_prompt_embeds_save_path = os.path.join(pooled_prompt_embeds_path, f'{basename}.pt')
 
-        # 如果嵌入已存在，跳过
-        if os.path.exists(prompt_embeds_save_path) and os.path.exists(pooled_prompt_embeds_save_path):
-            continue
+        # # 如果嵌入已存在，跳过
+        # if os.path.exists(prompt_embeds_save_path) and os.path.exists(pooled_prompt_embeds_save_path):
+        #     continue
 
         with open(tag_path, "r") as f:
             prompt = f.read()
