@@ -57,14 +57,17 @@ for model_size in model_sizes:
         Ground truth text: "{gt_text}"
         VLM OCR output: "{vlm_output}"
 
-        Step 1: Analyze the VLM OCR output and identify the text it extracted from the entire VLM output.
-        Step 2: Compare the extracted text with the ground truth.
-        Step 3: If you cannot identify the extracted text from the VLM OCR output, classify it as Incorrect.
+        Step 1: Extract the text content from the VLM OCR output.
+        Step 2: Compare the extracted text with the ground truth, considering:
+        - Word order does NOT matter.
+        - Compare based only on the set of unique words in the ground truth.
+        - Ignore capitalization, punctuation, and extra/missing spaces.
+        - Small typos still count as matches.
 
         Categories:
-        1 — Correct: the OCR output exactly matches the ground truth.
-        2 — Slightly correct: minor differences (typos, extra/missing spaces) but mostly correct.
-        3 — Incorrect: largely wrong, does not match, is empty, or the text cannot be identified.
+        1 — Correct: all unique ground truth words appear in the OCR output (ignoring order, case, spacing, typos).
+        2 — Slightly correct (partially correct): at least one but not all unique words match.
+        3 — Incorrect: no words match, or the output is largely wrong, unrelated, or empty.
 
         Answer with only the category number (1, 2, or 3).
         """
@@ -114,7 +117,7 @@ for model_size in model_sizes:
         print(count_two)
         print(count_three)
 
-        statistic_path = f'results/satext/lv3/vlm_ocr_result/statistic/qwen_{model_size}b'
+        statistic_path = f'results/satext/lv3/vlm_ocr_result/statistic/qwen_{model_size}b_2ndtry'
         os.makedirs(statistic_path, exist_ok=True)
         with open(f'{statistic_path}/{img_id}.txt', 'w') as file:
             file.write(f'{idx} img id: {img_id}\n\n')

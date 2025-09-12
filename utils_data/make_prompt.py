@@ -110,10 +110,13 @@ elif args.captioner =='qwen':
     vlm_model = Qwen2_5_VLForConditionalGeneration.from_pretrained(f"Qwen/Qwen2.5-VL-{captioner_size}B-Instruct", torch_dtype="auto", device_map="auto")
     vlm_processor = AutoProcessor.from_pretrained(f"Qwen/Qwen2.5-VL-{captioner_size}B-Instruct")
 
-
+count=args.start_num
 for img in tqdm(imgs[args.start_num:args.stop_num]):
-    print('img: ', img)
+    count+=1
     img_id = img.split('/')[-1].split('.')[0]
+    if os.path.exists(f'{prompt_save_folder}/{img_id}.txt'):
+        continue
+    print(f'{count}/{len(imgs)} processing: ', img)
     if args.captioner == 'llava':
         img = Image.open(img).convert('RGB')
         prompt = process_llava(img)

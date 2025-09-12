@@ -56,7 +56,7 @@ class PhoRealESRGANDataset(data.Dataset):
         opt['data_name'] = args.data_name
         opt['data_path'] = args.data_path
         opt['hq_prompt_path'] = args.hq_prompt_path
-        opt['lq_prompt_path'] = args.lq_prompt_path 
+        # opt['lq_prompt_path'] = args.lq_prompt_path 
         opt['null_text_ratio'] = args.null_text_ratio
         opt['val_num_img'] = 30     # manually set, but we dont use it
         # opt['gt_path'] = args.data_path
@@ -191,7 +191,7 @@ class PhoRealESRGANDataset(data.Dataset):
         gt_path = data_file['img_path']
         text = data_file["text"]
         hq_prompt = data_file['hq_prompt']
-        lq_prompt = data_file['lq_prompt']
+        # lq_prompt = data_file['lq_prompt']
         bbox = data_file["bbox"]
         text_enc = data_file["text_enc"]
         img_id = data_file['img_id']
@@ -283,7 +283,9 @@ class PhoRealESRGANDataset(data.Dataset):
         kernel = torch.FloatTensor(kernel)
         kernel2 = torch.FloatTensor(kernel2)
 
-        return img_gt, kernel, kernel2, sinc_kernel, text, hq_prompt, lq_prompt, bbox, poly, text_enc, img_id
+        # return img_gt, kernel, kernel2, sinc_kernel, text, hq_prompt, lq_prompt, bbox, poly, text_enc, img_id
+        return img_gt, kernel, kernel2, sinc_kernel, text, hq_prompt, bbox, poly, text_enc, img_id
+
 
 
     def __len__(self):
@@ -293,7 +295,8 @@ class PhoRealESRGANDataset(data.Dataset):
 
 def collate_fn_real(batch):
 
-    gt, kernel, kernel2, sinc_kernel, text, hq_prompt, lq_prompt, bbox, poly, text_enc, img_id  = zip(*batch)
+    # gt, kernel, kernel2, sinc_kernel, text, hq_prompt, lq_prompt, bbox, poly, text_enc, img_id  = zip(*batch)
+    gt, kernel, kernel2, sinc_kernel, text, hq_prompt, bbox, poly, text_enc, img_id  = zip(*batch)
     # Convert lists of tensors to stacked tensors safely
     gt = torch.stack([x.clone().detach() for x in gt])
     # lq = torch.stack([x.clone().detach() for x in lq])
@@ -319,7 +322,7 @@ def collate_fn_real(batch):
             "sinc_kernel": sinc_kernel,
             'text': list(text),
             'hq_prompt': list(hq_prompt),
-            'lq_prompt': list(lq_prompt),
+            # 'lq_prompt': list(lq_prompt),
             'bbox': list(bbox),
             'poly': list(poly_tensor),
             'text_enc': list(text_enc_tensor),

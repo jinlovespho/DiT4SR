@@ -63,7 +63,7 @@ def load_data_files(opt, mode):
     
     # load precomputed prompts 
     hq_prompts_path = sorted(glob.glob(f"{opt['hq_prompt_path']}/*.txt"))
-    lq_prompts_path = sorted(glob.glob(f"{opt['lq_prompt_path']}/*.txt"))
+    # lq_prompts_path = sorted(glob.glob(f"{opt['lq_prompt_path']}/*.txt"))
 
     # load anns
     ann_path = f"{data_path}/{mode}/dataset.json" 
@@ -72,13 +72,17 @@ def load_data_files(opt, mode):
         anns = sorted(anns.items())
     
 
-    data_files = zip(imgs_path, hq_prompts_path, lq_prompts_path, anns)
-    for img_path, hq_prompt_path, lq_prompt_path, ann in data_files:
+    # data_files = zip(imgs_path, hq_prompts_path, lq_prompts_path, anns)
+    # for img_path, hq_prompt_path, lq_prompt_path, ann in data_files:
+    data_files = zip(imgs_path, hq_prompts_path, anns)
+    for img_path, hq_prompt_path, ann in data_files:
 
         # safety check
         img_id = img_path.split('/')[-1].split('.')[0]
         prompt_id = hq_prompt_path.split('/')[-1].split('.')[0]
         ann_id = ann[0]
+        if not img_id == prompt_id == ann_id:
+            continue
         assert img_id == prompt_id == ann_id, 'img_id != ann_id'
         
         boxes=[]
@@ -90,9 +94,9 @@ def load_data_files(opt, mode):
         with open(hq_prompt_path, 'r') as prompt_file:
             hq_prompt = prompt_file.read().strip()  # strip() removes extra newlines/whitespace
         
-        # process lq prompt 
-        with open(lq_prompt_path, 'r') as prompt_file:
-            lq_prompt = prompt_file.read().strip()  # strip() removes extra newlines/whitespace
+        # # process lq prompt 
+        # with open(lq_prompt_path, 'r') as prompt_file:
+        #     lq_prompt = prompt_file.read().strip()  # strip() removes extra newlines/whitespace
         
         # process anns
         img_anns = ann[1]['0']['text_instances']
@@ -173,7 +177,7 @@ def load_data_files(opt, mode):
         files.append({  "img_path": img_path, 
                         "text": texts, 
                         'hq_prompt': hq_prompt,
-                        'lq_prompt': lq_prompt,
+                        # 'lq_prompt': lq_prompt,
                         "bbox": boxes,
                         'poly': polys,
                         'text_enc': text_encs, 

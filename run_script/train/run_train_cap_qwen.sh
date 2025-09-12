@@ -13,7 +13,7 @@ INIT_ARGS="
 DATA_ARGS="
     --data_name satext \
     --data_path /media/dataset2/text_restoration/100K \
-    --hq_prompt_path /media/dataset2/text_restoration/100K/dit4sr/data/train/llava13b_hq_prompt \
+    --hq_prompt_path /media/dataset2/text_restoration/100K/dit4sr/data/train/qwen7b_hq_prompt \
     --num_workers 0 \
 "
 
@@ -56,7 +56,7 @@ SAVE_ARGS="
 LOG_ARGS="
     --report_to wandb \
     --tracker_project_name iclr26_tair_vlm \
-    --tracker_run_name TRAIN_server12_gpu${CUDA}_satext_dit4sr_lr5e-6_bs2_gradaccum4_llava13bprompt \
+    --tracker_run_name TRAIN_server12_gpu${CUDA}_satext_dit4sr_lr5e-6_bs2_gradaccum4_qwen7bprompt \
     --logging_dir logs \
 "
 

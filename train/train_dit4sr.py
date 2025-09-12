@@ -196,7 +196,7 @@ def main(args):
                 text = batch['text']
                 text_enc = batch['text_enc']
                 hq_prompt = batch['hq_prompt']
-                lq_prompt = batch['lq_prompt']
+                # lq_prompt = batch['lq_prompt']
                 bbox = batch['bbox']
                 poly = batch['poly']
                 img_id = batch['img_id']

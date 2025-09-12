@@ -297,19 +297,20 @@ def main(args):
     pipeline = load_dit4sr_pipeline(args, accelerator)
 
 
-    # load vlm
-    if args.captioner =='llava' and args.saved_caption_path is None:
-        from llava.llm_agent import LLavaAgent
-        from CKPT_PTH import LLAVA_MODEL_PATH
-        cap_agent = LLavaAgent(LLAVA_MODEL_PATH, LLaVA_device, load_8bit=True, load_4bit=False)
-
-    elif args.captioner == 'qwen' and args.saved_caption_path is None:
-        from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
-        model_size=args.captioner_size
-        vlm_model = Qwen2_5_VLForConditionalGeneration.from_pretrained(f"Qwen/Qwen2.5-VL-{model_size}B-Instruct", torch_dtype="auto", device_map="auto")
-        vlm_processor = AutoProcessor.from_pretrained(f"Qwen/Qwen2.5-VL-{model_size}B-Instruct")
-
-
+    if args.use_precomputed_prompts is not None:
+        precom_prompts = sorted(glob.glob(f"{args.use_precomputed_prompts}/*.txt"))
+    else:
+        # load vlm
+        if args.captioner =='llava' and args.saved_caption_path is None:
+            from llava.llm_agent import LLavaAgent
+            from CKPT_PTH import LLAVA_MODEL_PATH
+            cap_agent = LLavaAgent(LLAVA_MODEL_PATH, LLaVA_device, load_8bit=True, load_4bit=False)
+        elif args.captioner == 'qwen' and args.saved_caption_path is None:
+            from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
+            model_size=args.captioner_size
+            vlm_model = Qwen2_5_VLForConditionalGeneration.from_pretrained(f"Qwen/Qwen2.5-VL-{model_size}B-Instruct", torch_dtype="auto", device_map="auto")
+            vlm_processor = AutoProcessor.from_pretrained(f"Qwen/Qwen2.5-VL-{model_size}B-Instruct")
+    
 
     # load SAText annotation for gt prompting 
     if args.satext_ann_path is not None:
@@ -402,6 +403,7 @@ def main(args):
             image_names = [args.image_path]
         image_names = sorted(image_names)
         print(f'Number of testing images: {len(image_names)}')
+
         for image_idx, image_name in enumerate(image_names[:]):
             
             # img id 
@@ -413,20 +415,28 @@ def main(args):
             # read img
             validation_image = Image.open(image_name).convert("RGB")
 
-            # process prompt 
-            if args.captioner == 'llava':
-                validation_prompt = process_llava(cap_agent, validation_image)
-            elif args.captioner == 'qwen':
-                if args.saved_caption_path is not None:
-                    gt_text, validation_prompt = process_saved_qwen(args.saved_caption_path, args.captioner_size, img_id)
-                else:
-                    validation_prompt = process_qwen(vlm_model, vlm_processor, image_name)
-            if args.use_satext_gt_prompt:
-                print('Using SAText GT prompt ...')
-                validation_prompt = gt_prompt
-            validation_prompt += ' ' + args.added_prompt # clean, extremely detailed, best quality, sharp, clean
-            if args.use_null_prompt:
-                validation_prompt = ''
+
+            if args.use_precomputed_prompts is not None:
+                precom_prompt = precom_prompts[image_idx]
+                prompt_id = precom_prompt.split('/')[-1].split('.')[0]
+                assert img_id == prompt_id
+                with open(f'{precom_prompt}', 'r') as f:
+                    validation_prompt = f.read().strip()
+            else:
+                # process prompt 
+                if args.captioner == 'llava':
+                    validation_prompt = process_llava(cap_agent, validation_image)
+                elif args.captioner == 'qwen':
+                    if args.saved_caption_path is not None:
+                        gt_text, validation_prompt = process_saved_qwen(args.saved_caption_path, args.captioner_size, img_id)
+                    else:
+                        validation_prompt = process_qwen(vlm_model, vlm_processor, image_name)
+                if args.use_satext_gt_prompt:
+                    print('Using SAText GT prompt ...')
+                    validation_prompt = gt_prompt
+                validation_prompt += ' ' + args.added_prompt # clean, extremely detailed, best quality, sharp, clean
+                if args.use_null_prompt:
+                    validation_prompt = ''
             negative_prompt = args.negative_prompt #dirty, messy, low quality, frames, deformed, 
 
             # save prompt
@@ -534,6 +544,7 @@ if __name__ == "__main__":
     parser.add_argument('--captioner', type=str, default='llava')
     parser.add_argument('--captioner_size', type=int)
     parser.add_argument('--saved_caption_path', type=str)
+    parser.add_argument('--use_precomputed_prompts', type=str)
 
     args = parser.parse_args()
     main(args)
