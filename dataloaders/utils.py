@@ -124,29 +124,12 @@ def load_data_files(opt, mode):
             box_xyxy_scaled = list(map(lambda x: x/model_H, box_xyxy))  # scale box coord to [0,1]
             x1,y1,x2,y2 = box_xyxy_scaled 
             box_cxcywh = [(x1+x2)/2, (y1+y2)/2, x2-x1, y2-y1]   # xyxy -> cxcywh
-            # select box format
-            processed_box = box_xywh
-            processed_box = list(map(lambda x: int(x), processed_box))
-            # elif data_args['bbox_format'] == 'xyxy_scaled':
-            #     processed_box = box_xyxy_scaled
-            #     processed_box = list(map(lambda x: round(x,4), processed_box))
-            # elif data_args['bbox_format'] == 'cxcywh_scaled':
-            #     processed_box = box_cxcywh
-            #     processed_box = list(map(lambda x: round(x,4), processed_box))
+            # box format
+            processed_box = box_cxcywh
+            processed_box = list(map(lambda x: round(x,4), processed_box))
             boxes.append(processed_box)
 
 
-            # # select box format
-            # if data_args['bbox_format'] == 'xywh_unscaled':
-            #     processed_box = box_xywh
-            #     processed_box = list(map(lambda x: int(x), processed_box))
-            # elif data_args['bbox_format'] == 'xyxy_scaled':
-            #     processed_box = box_xyxy_scaled
-            #     processed_box = list(map(lambda x: round(x,4), processed_box))
-            # elif data_args['bbox_format'] == 'cxcywh_scaled':
-            #     processed_box = box_cxcywh
-            #     processed_box = list(map(lambda x: round(x,4), processed_box))
-            # boxes.append(processed_box)
 
 
             # process polygons

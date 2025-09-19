@@ -34,15 +34,15 @@
 #     --start_point lr 
 
 
-
-for size in 72 32 7 3; do
+# 72 32 7 3
+for size in 7; do
     # satext lv3 - qwen prompt 
-    CUDA_VISIBLE_DEVICES=1 python test/test_wllava.py \
-        --pretrained_model_name_or_path="preset/models/stable-diffusion-3.5-medium" \
-        --transformer_model_name_or_path="preset/models/dit4sr_q" \
+    CUDA_VISIBLE_DEVICES=7 python test/test_wllava.py \
+        --pretrained_model_name_or_path preset/models/stable-diffusion-3.5-medium \
+        --transformer_model_name_or_path train_result/dit4sr/TRAIN_server12_gpu1_satext_dit4sr_lr5e-6_bs2_gradaccum4_qwen7bprompt/checkpoint-26000 \
         --image_path /media/dataset2/text_restoration/SAMText_test_degradation/lv3 \
         --satext_ann_path /media/dataset2/text_restoration/100K/test/dataset.json \
-        --output_dir results/satext/lv3/dit4sr_q_qwen${size}prompt \
+        --output_dir results/satext/lv3/dit4sr_q_qwen${size}prompt_ckpt26000 \
         --save_prompts \
         --captioner qwen \
         --captioner_size $size \

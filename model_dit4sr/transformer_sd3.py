@@ -30,6 +30,7 @@ from diffusers.models.modeling_outputs import Transformer2DModelOutput
 from diffusers.utils import WEIGHTS_NAME 
 from diffusers.utils import SAFETENSORS_WEIGHTS_NAME
 import safetensors
+from einops import rearrange
 
 
 from .attention import JointTransformerBlock
@@ -330,6 +331,8 @@ class SD3Transformer2DModel(ModelMixin, ConfigMixin, PeftAdapterMixin, FromOrigi
         hidden_states = torch.cat([hidden_states, controlnet_image], dim=-2)    # concat in token dimension -> b 2048 1536
         ## control_dit end
         
+        trans_blk_outs=[]
+        extract_feat_idx=[0, 8, 16, 23]
         for index_block, block in enumerate(self.transformer_blocks):   # 24 blocks
             # Skip specified layers
             is_skip = True if skip_layers is not None and index_block in skip_layers else False     # is_skip = False
@@ -354,10 +357,13 @@ class SD3Transformer2DModel(ModelMixin, ConfigMixin, PeftAdapterMixin, FromOrigi
                     **ckpt_kwargs,
                 )
             elif not is_skip:
-                encoder_hidden_states, hidden_states = block(
-                    hidden_states=hidden_states, encoder_hidden_states=encoder_hidden_states, temb=temb
-                )
 
+                # pho
+                if index_block in extract_feat_idx:
+                    encoder_hidden_states, hidden_states, trans_blk_out = block(hidden_states=hidden_states, encoder_hidden_states=encoder_hidden_states, temb=temb, extract_feat=True) 
+                    trans_blk_outs.append(trans_blk_out)
+                else:
+                    encoder_hidden_states, hidden_states = block(hidden_states=hidden_states, encoder_hidden_states=encoder_hidden_states, temb=temb, extract_feat=False) 
 
             # controlnet residual
             if block_controlnet_hidden_states is not None and block.context_pre_only is False:
@@ -368,28 +374,28 @@ class SD3Transformer2DModel(ModelMixin, ConfigMixin, PeftAdapterMixin, FromOrigi
         hidden_states, hidden_states_control = hidden_states.chunk(2, dim=1)
         # control_dit end
 
-        hidden_states = self.norm_out(hidden_states, temb)
-        hidden_states = self.proj_out(hidden_states)
+        hidden_states = self.norm_out(hidden_states, temb)  # b 1024 1536
+        hidden_states = self.proj_out(hidden_states)        # b 1024 64
+        
 
         # unpatchify
-        patch_size = self.config.patch_size
-        height = height // patch_size
-        width = width // patch_size
+        patch_size = self.config.patch_size # 2
+        height = height // patch_size       # 32
+        width = width // patch_size         # 32
 
-        hidden_states = hidden_states.reshape(
-            shape=(hidden_states.shape[0], height, width, patch_size, patch_size, self.out_channels)
-        )
-        hidden_states = torch.einsum("nhwpqc->nchpwq", hidden_states)
-        output = hidden_states.reshape(
-            shape=(hidden_states.shape[0], self.out_channels, height * patch_size, width * patch_size)
-        )
+        output = rearrange(hidden_states, 'b (H W) (pH pW d) -> b d (H pH) (W pW)', H=height, W=width, pH=patch_size, pW=patch_size)
+
+        # hidden_states = hidden_states.reshape(shape=(hidden_states.shape[0], height, width, patch_size, patch_size, self.out_channels)) # b 1024 64 -> b 32 32 2 2 16
+        # hidden_states = torch.einsum("nhwpqc->nchpwq", hidden_states)   # b 16 32 2 32 2
+        # output = hidden_states.reshape(shape=(hidden_states.shape[0], self.out_channels, height * patch_size, width * patch_size))  # b 16 64 64 
+
 
         if USE_PEFT_BACKEND:
             # remove `lora_scale` from each PEFT layer
             unscale_lora_layers(self, lora_scale)
 
         if not return_dict:
-            return (output,)
+            return (output, trans_blk_outs)
 
         return Transformer2DModelOutput(sample=output)
 

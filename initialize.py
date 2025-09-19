@@ -202,6 +202,29 @@ def load_model(args, accelerator):
     models['tokenizers'] = tokenizers 
     models['text_encoders'] = text_encoders 
 
+    # load ts module 
+    if args.model_name == 'dit4sr_stage2':
+        from testr.adet.modeling.transformer_detector import TransformerDetector
+        from testr.adet.config import get_cfg
+
+        # get testr config
+        config_testr = get_cfg()
+        config_testr.merge_from_file('./testr/configs/TESTR/TESTR_R_50_Polygon.yaml')
+        config_testr.freeze()
+
+        # load testr model
+        detector = TransformerDetector(config_testr)
+
+        # load testr pretrained weights
+        ckpt = torch.load('./model_ckpts/totaltext_testr_R_50_polygon.pth', map_location="cpu")
+        load_result = detector.load_state_dict(ckpt['model'], strict=False)
+        
+        if accelerator.is_main_process:
+            print("Loaded TESTR checkpoint keys:")
+            print(" - Missing keys:", load_result.missing_keys)
+
+        models['testr'] = detector.train()
+
 
     # load vlm captioner 
     if not args.load_precomputed_caption:
@@ -244,6 +267,20 @@ def load_model_params(args, models):
         # other method
         elif args.finetune == 'add other':
             pass
+    
+    if args.model_name == 'dit4sr_stage2':
+        for name, param in models['testr'].named_parameters():
+            # Count total parameters
+            numel = param.numel()
+            tot_param_count += numel
+            tot_param_names.append(f"testr.{name}")
+
+            # Enable training
+            param.requires_grad = True
+            train_param_count += numel
+            train_param_names.append(f"testr.{name}")
+            
+
 
     model_params = {}
     model_params['tot_param_names'] = tot_param_names
@@ -264,23 +301,44 @@ def load_optim(args, accelerator, models):
     if args.scale_lr:
         args.learning_rate = (args.learning_rate * args.gradient_accumulation_steps * args.train_batch_size * accelerator.num_processes)
 
-    # setup 8bit adam
-    if args.use_8bit_adam:
-        optimizer_class = bnb.optim.AdamW8bit
-    else:
-        optimizer_class = torch.optim.AdamW
+    # setup optimizer class
+    optimizer_class = bnb.optim.AdamW8bit if args.use_8bit_adam else torch.optim.AdamW
 
-    # load trainable params
-    params_to_optimize = list(filter(lambda p: p.requires_grad, models['transformer'].parameters()))
+
+    # separate trainable parameters
+    transformer_params = list(filter(lambda p: p.requires_grad, models['transformer'].parameters()))
+    testr_params = list(filter(lambda p: p.requires_grad, models['testr'].parameters()))
+
+    # # define parameter groups with different LRs
+    # param_groups = [
+    #     {"params": transformer_params, "lr": args.transformer_lr if hasattr(args, "transformer_lr") else args.learning_rate},
+    #     {"params": testr_params, "lr": args.testr_lr if hasattr(args, "testr_lr") else args.ts_module_lr},
+    # ]
+
+    # define parameter groups with different LRs
+    param_groups = [
+        {"params": testr_params, "lr": args.testr_lr if hasattr(args, "testr_lr") else args.ts_module_lr},
+    ]
 
     # optimizer
     optimizer = optimizer_class(
-        params_to_optimize,
-        lr=args.learning_rate,
+        param_groups,
         betas=(args.adam_beta1, args.adam_beta2),
         weight_decay=args.adam_weight_decay,
         eps=args.adam_epsilon,
     )
+
+    # # load trainable params
+    # params_to_optimize = list(filter(lambda p: p.requires_grad, models['transformer'].parameters()))
+
+    # # optimizer
+    # optimizer = optimizer_class(
+    #     params_to_optimize,
+    #     lr=args.learning_rate,
+    #     betas=(args.adam_beta1, args.adam_beta2),
+    #     weight_decay=args.adam_weight_decay,
+    #     eps=args.adam_epsilon,
+    # )
 
     return optimizer
 

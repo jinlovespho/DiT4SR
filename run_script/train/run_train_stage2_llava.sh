@@ -1,6 +1,6 @@
 #!/bin/bash
 
-CUDA="1"
+CUDA="0"
 NUM_GPU=1
 
 INIT_ARGS="
@@ -23,6 +23,8 @@ MODEL_ARGS="
     --resolution 512 \
     --null_text_ratio 0.0 \
     --load_precomputed_caption \
+    --model_name dit4sr_stage2
+    --ts_module_lr 1e-4
 "
 
 
@@ -48,7 +50,7 @@ OPTIM_ARGS="
 
 
 SAVE_ARGS="
-    --output_dir ./train_result/dit4sr \
+    --output_dir ./train_result/dit4sr_stage2_onlyts \
     --checkpointing_steps 2000 \
 "
 
@@ -56,7 +58,7 @@ SAVE_ARGS="
 LOG_ARGS="
     --report_to wandb \
     --tracker_project_name iclr26_tair_vlm \
-    --tracker_run_name TRAIN_server12_gpu${CUDA}_satext_dit4sr_lr5e-6_bs2_gradaccum4_llava13bprompt \
+    --tracker_run_name TRAIN_STAGE2_server12_gpu${CUDA}_satext_dit4sr_lr5e-6_testr_lr1e-4_bs2_gradaccum4_llava13bprompt_onlyts \
     --logging_dir logs \
 "
 

@@ -51,6 +51,7 @@ import train_utils
 
 from torchvision.utils import save_image 
 import pyiqa
+from einops import rearrange 
 
 logger = get_logger(__name__)
 
@@ -98,7 +99,7 @@ def main(args):
     )
 
     # Prepare everything with our `accelerator`.
-    transformer, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(models['transformer'], optimizer, train_dataloader, lr_scheduler)
+    transformer, ts_module, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(models['transformer'], models['testr'], optimizer, train_dataloader, lr_scheduler)
     vae_img_processor = VaeImageProcessor(vae_scale_factor=8)
 
     # We need to recalculate our total training steps as the size of the training dataloader may have changed.
@@ -151,8 +152,13 @@ def main(args):
         logger.info(f" TRAINING - {name}")
 
 
+
     global_step = 0
     first_epoch = 0
+
+    ocr_loss = 0.0 
+    ocr_losses={}  
+    ocr_loss_weight=1.0
 
     # Potentially load in the weights and states from a previous save
     if args.resume_from_checkpoint:
@@ -194,16 +200,14 @@ def main(args):
                 gt = batch['gt']
                 lq = batch['lq']
                 text = batch['text']
-                text_enc = batch['text_enc']
+                text_encs = batch['text_enc']
                 hq_prompt = batch['hq_prompt']
                 # lq_prompt = batch['lq_prompt']
-                bbox = batch['bbox']
-                poly = batch['poly']
+                boxes = batch['bbox']    # len(bbox) = b
+                polys = batch['poly']    # len(poly) = b
                 img_id = batch['img_id']
-                # save_image(gt, './img_gt.jpg')
-                # save_image(lq, './img_lq.jpg')
 
-            with accelerator.accumulate(transformer):
+            with accelerator.accumulate([transformer, ts_module]):
 
                 if args.data_name == 'satext':
                     with torch.no_grad():
@@ -251,19 +255,49 @@ def main(args):
                 indices = (u * models['noise_scheduler_copy'].config.num_train_timesteps).long()
                 timesteps = models['noise_scheduler_copy'].timesteps[indices].to(device=model_input.device)
 
-                # Add noise according to flow matching.
+                # Add noise according to flow matching. b
                 # zt = (1 - texp) * x + texp * z1
                 sigmas = get_sigmas(timesteps, accelerator, models['noise_scheduler_copy'], n_dim=model_input.ndim, dtype=model_input.dtype)    # b 1 1 1
                 noisy_model_input = (1.0 - sigmas) * model_input + sigmas * noise   # b 16 64 64 
                 # Predict the noise residual
-                model_pred = transformer(                       # b 16 64 64
+                trans_out = transformer(                       
                     hidden_states=noisy_model_input,            # b 16 64 64 
                     controlnet_image=controlnet_image,          # b 16 16 16  
                     timestep=timesteps,                         # b
                     encoder_hidden_states=prompt_embeds,        # b 154 4096
                     pooled_projections=pooled_prompt_embeds,    # b 2048
                     return_dict=False,
-                )[0]
+                )
+
+                model_pred = trans_out[0]   # b 16 64 64
+
+                if len(trans_out) > 1:
+                    etc_out = trans_out[1]
+                    # unpatchify
+                    patch_size = transformer.config.patch_size  # 2
+                    hidden_dim = transformer.config.num_attention_heads * transformer.config.attention_head_dim     # 1536
+                    height = 64 // patch_size       # 32
+                    width = 64 // patch_size        # 32
+                    extracted_feats = [ rearrange(feat['extract_feat'], 'b (H W) (pH pW d) -> b d (H pH) (W pW)', H=height, W=width, pH=patch_size, pW=patch_size) for feat in etc_out ]    # b 384 64 64 
+
+                '''
+                (Pdb) extracted_feats[0].shape  torch.Size([2, 1280, 16, 16])
+                (Pdb) extracted_feats[1].shape  torch.Size([2, 1280, 32, 32])
+                (Pdb) extracted_feats[2].shape  torch.Size([2, 640, 64, 64])
+                (Pdb) extracted_feats[3].shape  torch.Size([2, 320, 64, 64])
+                '''
+
+                '''
+                (Pdb) trans_out[0]['extract_feat'].shape    torch.Size([2, 1024, 1536])
+                (Pdb) trans_out[1]['extract_feat'].shape    torch.Size([2, 1024, 1536])
+                (Pdb) trans_out[2]['extract_feat'].shape    torch.Size([2, 1024, 1536])
+                (Pdb) trans_out[3]['extract_feat'].shape    torch.Size([2, 1024, 1536])
+                
+                '''
+
+
+
+
 
                 # Follow: Section 5 of https://arxiv.org/abs/2206.00364.
                 # Preconditioning of the model outputs.
@@ -281,13 +315,43 @@ def main(args):
                     target = noise - model_input
 
                 # Compute regular loss.
-                loss = torch.mean(
+                diff_loss = torch.mean(
                     (weighting.float() * (model_pred.float() - target.float()) ** 2).reshape(target.shape[0], -1),
                     1,
                 )
-                loss = loss.mean()
+                diff_loss = diff_loss.mean()
 
-                accelerator.backward(loss)
+
+                # ts module loss 
+                if args.model_name == 'dit4sr_stage2' or args.model_name == 'dit4sr_stage3':
+                    # process annotations for OCR training loss
+                    train_targets=[]
+                    for i in range(bsz):
+                        num_box=len(boxes[i])
+                        tmp_dict={}
+                        tmp_dict['labels'] = torch.tensor([0]*num_box).cuda()  # 0 for text
+                        tmp_dict['boxes'] = torch.tensor(boxes[i]).cuda()
+                        tmp_dict['texts'] = text_encs[i]
+                        tmp_dict['ctrl_points'] = polys[i]
+                        train_targets.append(tmp_dict)
+                    # OCR model forward pass
+                    ocr_loss_dict, _ = models['testr'](extracted_feats, train_targets)
+                    # OCR total_loss
+                    ocr_tot_loss = sum(v for v in ocr_loss_dict.values())
+                    # OCR losses
+                    for ocr_key, ocr_val in ocr_loss_dict.items():
+                        if ocr_key in ocr_losses.keys():
+                            ocr_losses[ocr_key].append(ocr_val.item())
+                        else:
+                            ocr_losses[ocr_key]=[ocr_val.item()]
+                    total_loss = diff_loss + ocr_loss_weight * ocr_tot_loss      
+                else:
+                    total_loss = diff_loss
+                    ocr_tot_loss=torch.tensor(0).cuda()
+
+
+
+                accelerator.backward(total_loss)
                 if accelerator.sync_gradients:
                     # params_to_clip = controlnet.parameters()
                     params_to_clip = transformer.parameters()
@@ -350,7 +414,19 @@ def main(args):
                                 res_img.save(f'{val_save_path}/step{global_step}_{id}.png')              
 
 
-            logs = {"loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
+            # log 
+            logs = {"total_loss": total_loss.detach().item(), 
+                    'diff_loss': diff_loss.detach().item(),
+                    "lr": lr_scheduler.get_last_lr()[0]}
+            
+            # ocr log
+            if args.model_name in ['dit4sr_stage2', 'dit4sr_stage3']:
+                logs["ocr_tot_loss"] = ocr_tot_loss.detach().item()
+                logs['ts_module_lr'] = args.ts_module_lr
+                for ocr_key, ocr_val in ocr_loss_dict.items():
+                    logs[f"ocr_{ocr_key}"] = ocr_val.detach().item()
+
+
             progress_bar.set_postfix(**logs)
             accelerator.log(logs, step=global_step)
 
@@ -713,9 +789,15 @@ if __name__ == "__main__":
     parser.add_argument('--val_batch_size', type=int)
     parser.add_argument('--load_precomputed_caption', action='store_true')
     parser.add_argument('--val_every_step', type=int)
-    
+    parser.add_argument('--model_name', type=str)
+    parser.add_argument('--ts_module_lr', type=float)
+
     
     args = parser.parse_args()
+
+
+
+    breakpoint()
 
     if args.dataset_name is None and args.train_data_dir is None:
         raise ValueError("Specify either `--dataset_name` or `--train_data_dir`")
