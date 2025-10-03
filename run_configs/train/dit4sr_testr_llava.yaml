@@ -1,0 +1,90 @@
+
+
+init:
+  seed: 42
+
+
+data:
+  name: satext
+  satext:  
+    data_path: /media/dataset2/text_restoration/100K
+    hq_prompt_path: /media/dataset2/text_restoration/100K/dit4sr/data/train/llava13b_hq_prompt
+    null_text_ratio: 0.0
+
+  val:
+    data_name: satext
+
+
+model:
+  noise_scheduler:
+    weighting_scheme: logit_normal
+    logit_mean: 0.0
+    logit_std: 1.0 
+    mode_scale: 1.29
+    precondition_outputs: 1
+
+  dit:
+    name: dit4sr
+    resolution: 512
+    load_precomputed_caption: true
+
+  ts_module:
+    name: testr 
+
+
+ckpt:
+  init_path:
+    vae: preset/models/stable-diffusion-3.5-medium
+    noise_scheduler: preset/models/stable-diffusion-3.5-medium
+    tokenizer: preset/models/stable-diffusion-3.5-medium
+    text_encoder: preset/models/stable-diffusion-3.5-medium
+    dit: preset/models/dit4sr_q
+    ts_module: model_ckpts/totaltext_testr_R_50_polygon.pth
+  resume_path:
+    dit: latest
+
+
+
+train:
+  finetune_model: dit4sr_testr 
+  finetune_method: dit4sr_lr_branch
+  batch_size: 2
+  num_workers: 4
+  num_train_epochs: 300
+  max_train_steps: 
+  mixed_precision: "no"
+  lr_scheduler: "constant"
+  lr_warmup_steps: 500
+  lr_num_cycles: 1
+  lr_power: 1.0
+  max_grad_norm: 1.0
+  set_grads_to_none: False
+  gradient_checkpointing: True
+  gradient_accumulation_steps: 4
+  scale_lr: False
+  use_8bit_adam: False
+  learning_rate:
+    dit: 5e-6
+    ts_module: 1e-4
+
+
+val:
+  batch_size: 2
+  val_every_step: 2000
+
+
+save:
+  output_dir: ./result_train/dit4sr_testr_llava13b
+  checkpointing_steps: 5000
+  checkpoints_total_limit:
+
+
+log:
+  tracker: 
+    report_to: wandb 
+    key: e32eed0c2509bf898b850b0065ab62345005fb73
+    # project_name: cvpr26_tair_extension
+    project_name: iclr26_tair_vlm
+    # run_name: TRAIN_STAGE2_server12_gpu0_satext_dit4sr_lr5e-6_testr_lr1e-4_bs2_gradaccum4_llava13bprompt_onlyts_test
+    run_name: TRAIN_serv12gpu1_satext_dit4sr_lr5e-6_testr_lr1e-4_bs2_gradaccum4_llava13b_ocrlossweight0.01
+  log_dir: logs

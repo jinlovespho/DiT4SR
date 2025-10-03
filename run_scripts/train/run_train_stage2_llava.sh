@@ -58,8 +58,9 @@ SAVE_ARGS="
 LOG_ARGS="
     --report_to wandb \
     --tracker_project_name iclr26_tair_vlm \
-    --tracker_run_name TRAIN_STAGE2_server12_gpu${CUDA}_satext_dit4sr_lr5e-6_testr_lr1e-4_bs2_gradaccum4_llava13bprompt_onlyts \
+    --tracker_run_name TRAIN_STAGE2_server12_gpu${CUDA}_satext_dit4sr_lr5e-6_testr_lr1e-4_bs2_gradaccum4_llava13bprompt_onlyts_test \
     --logging_dir logs \
+    --config run_configs/train/run_train_stage2_llava.yaml \
 "
 
 

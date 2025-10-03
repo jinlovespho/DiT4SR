@@ -3,11 +3,13 @@ import os
 import math
 import copy
 import logging
+import argparse
 import diffusers
 import accelerate
 import transformers
 from pathlib import Path
 from packaging import version
+from omegaconf import OmegaConf
 from accelerate import Accelerator
 from diffusers.optimization import get_scheduler
 from accelerate.utils import DistributedDataParallelKwargs, ProjectConfiguration, set_seed
@@ -44,27 +46,27 @@ def import_model_class_from_model_name_or_path(
 
 
 # Copied from dreambooth sd3 example
-def load_text_encoders(class_one, class_two, class_three, args):
+def load_text_encoders(class_one, class_two, class_three, cfg):
     text_encoder_one = class_one.from_pretrained(
-        args.pretrained_model_name_or_path, subfolder="text_encoder", revision=args.revision, variant=args.variant
+        cfg.ckpt.init_path.text_encoder, subfolder="text_encoder", revision=None, variant=None
     )
     text_encoder_two = class_two.from_pretrained(
-        args.pretrained_model_name_or_path, subfolder="text_encoder_2", revision=args.revision, variant=args.variant
+        cfg.ckpt.init_path.text_encoder, subfolder="text_encoder_2", revision=None, variant=None
     )
     text_encoder_three = class_three.from_pretrained(
-        args.pretrained_model_name_or_path, subfolder="text_encoder_3", revision=args.revision, variant=args.variant
+        cfg.ckpt.init_path.text_encoder, subfolder="text_encoder_3", revision=None, variant=None
     )
     return text_encoder_one, text_encoder_two, text_encoder_three
 
 
-def load_experiment_setting(args, logger):
-    logging_dir = Path(args.output_dir, args.logging_dir)
-    accelerator_project_config = ProjectConfiguration(project_dir=args.output_dir, logging_dir=logging_dir)
+def load_experiment_setting(cfg, logger):
+    logging_dir = Path(cfg.save.output_dir, cfg.log.log_dir)
+    accelerator_project_config = ProjectConfiguration(project_dir=cfg.save.output_dir, logging_dir=logging_dir)
     kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
     accelerator = Accelerator(
-        gradient_accumulation_steps=args.gradient_accumulation_steps,
-        mixed_precision=args.mixed_precision,
-        log_with=args.report_to,
+        gradient_accumulation_steps=cfg.train.gradient_accumulation_steps,
+        mixed_precision=cfg.train.mixed_precision,
+        log_with=cfg.log.tracker.report_to,
         project_config=accelerator_project_config,
         kwargs_handlers=[kwargs],
     )
@@ -82,12 +84,12 @@ def load_experiment_setting(args, logger):
         transformers.utils.logging.set_verbosity_error()
         diffusers.utils.logging.set_verbosity_error()
     # If passed along, set the training seed now.
-    if args.seed is not None:
-        set_seed(args.seed)
+    if cfg.init.seed is not None:
+        set_seed(cfg.init.seed)
     # Handle the repository creation
     if accelerator.is_main_process:
-        if args.output_dir is not None:
-            os.makedirs(f'{args.output_dir}/{args.tracker_run_name}', exist_ok=True)
+        if cfg.save.output_dir is not None:
+            os.makedirs(f'{cfg.save.output_dir}/{cfg.log.tracker.run_name}', exist_ok=True)
     # `accelerate` 0.16.0 will have better support for customized saving
     if version.parse(accelerate.__version__) >= version.parse("0.16.0"):
         # create custom saving & loading hooks so that `accelerator.save_state(...)` serializes in a nice format
@@ -115,24 +117,18 @@ def load_experiment_setting(args, logger):
 
 
 
-def load_data(args):
+def load_data(cfg):
 
     # breakpoint()
-    if args.data_name == 'satext':
+    if cfg.data.name == 'satext':
         from basicsr.data.pho_realesrgan_dataset import PhoRealESRGANDataset
         from basicsr.data.pho_realesrgan_dataset import collate_fn_real
         collate_fn = collate_fn_real
 
-        train_ds = PhoRealESRGANDataset(args, mode='train')
-        # val_ds = PhoRealESRGANDataset(args, mode='val')
+        train_ds = PhoRealESRGANDataset(cfg.data, mode='train')
+        # val_ds = PhoRealESRGANDataset(cfg, mode='val')
     
-    else:
-        train_ds = PairedCaptionDataset(root_folder=args.root_folders, null_text_ratio=args.null_text_ratio)
-        # val_ds = None 
-        collate_fn=None
-
-    
-    train_loader = torch.utils.data.DataLoader(train_ds, shuffle=True, batch_size=args.train_batch_size, num_workers=args.num_workers, collate_fn=collate_fn)
+    train_loader = torch.utils.data.DataLoader(train_ds, shuffle=True, batch_size=cfg.train.batch_size, num_workers=cfg.train.num_workers, collate_fn=collate_fn)
     # val_loader = torch.utils.data.DataLoader(val_ds, shuffle=False, batch_size=args.val_batch_size, num_workers=args.num_workers, collate_fn=collate_fn)
     val_loader=None
 
@@ -140,7 +136,7 @@ def load_data(args):
 
 
 
-def load_model(args, accelerator):
+def load_model(cfg, accelerator):
     from diffusers import AutoencoderKL, FlowMatchEulerDiscreteScheduler
     from model_dit4sr.transformer_sd3 import SD3Transformer2DModel
     from transformers import CLIPTokenizer, PretrainedConfig, T5TokenizerFast
@@ -148,47 +144,47 @@ def load_model(args, accelerator):
     models = {}
 
     # load vae 
-    vae = AutoencoderKL.from_pretrained(args.vae_model_name_or_path, subfolder="vae", revision=None)
+    vae = AutoencoderKL.from_pretrained(cfg.ckpt.init_path.vae, subfolder="vae", revision=None)
     vae.requires_grad_(False)
     models['vae'] = vae
 
     # load scheduler 
-    noise_scheduler = FlowMatchEulerDiscreteScheduler.from_pretrained(args.pretrained_model_name_or_path, subfolder="scheduler")
+    noise_scheduler = FlowMatchEulerDiscreteScheduler.from_pretrained(cfg.ckpt.init_path.noise_scheduler, subfolder="scheduler")
     noise_scheduler_copy = copy.deepcopy(noise_scheduler)
     models['noise_scheduler_copy'] = noise_scheduler_copy
 
     # load transformer 
-    transformer = SD3Transformer2DModel.from_pretrained_local(args.transformer_model_name_or_path, subfolder="transformer", revision=args.revision, variant=args.variant)
+    transformer = SD3Transformer2DModel.from_pretrained_local(cfg.ckpt.init_path.dit, subfolder="transformer", revision=None, variant=None)
     transformer.requires_grad_(False)
     models['transformer'] = transformer
 
     # load tokenizer 
     tokenizer_one = CLIPTokenizer.from_pretrained(
-        args.pretrained_model_name_or_path,
+        cfg.ckpt.init_path.tokenizer,
         subfolder="tokenizer",
-        revision=args.revision,
+        revision=None,
     )
     tokenizer_two = CLIPTokenizer.from_pretrained(
-        args.pretrained_model_name_or_path,
+        cfg.ckpt.init_path.tokenizer,
         subfolder="tokenizer_2",
-        revision=args.revision,
+        revision=None,
     )
     tokenizer_three = T5TokenizerFast.from_pretrained(
-        args.pretrained_model_name_or_path,
+        cfg.ckpt.init_path.tokenizer,
         subfolder="tokenizer_3",
-        revision=args.revision,
+        revision=None
     )
     # import correct text encoder class
     text_encoder_cls_one = import_model_class_from_model_name_or_path(
-        args.pretrained_model_name_or_path, args.revision
+        cfg.ckpt.init_path.text_encoder, None
     )
     text_encoder_cls_two = import_model_class_from_model_name_or_path(
-        args.pretrained_model_name_or_path, args.revision, subfolder="text_encoder_2"
+        cfg.ckpt.init_path.text_encoder, None, subfolder="text_encoder_2"
     )
     text_encoder_cls_three = import_model_class_from_model_name_or_path(
-        args.pretrained_model_name_or_path, args.revision, subfolder="text_encoder_3"
+        cfg.ckpt.init_path.text_encoder, None, subfolder="text_encoder_3"
     )
-    text_encoder_one, text_encoder_two, text_encoder_three = load_text_encoders(text_encoder_cls_one, text_encoder_cls_two, text_encoder_cls_three, args)
+    text_encoder_one, text_encoder_two, text_encoder_three = load_text_encoders(text_encoder_cls_one, text_encoder_cls_two, text_encoder_cls_three, cfg)
     text_encoder_one.requires_grad_(False)
     text_encoder_two.requires_grad_(False)
     text_encoder_three.requires_grad_(False)
@@ -203,7 +199,7 @@ def load_model(args, accelerator):
     models['text_encoders'] = text_encoders 
 
     # load ts module 
-    if args.model_name == 'dit4sr_stage2':
+    if cfg.train.finetune_model == 'dit4sr_testr':
         from testr.adet.modeling.transformer_detector import TransformerDetector
         from testr.adet.config import get_cfg
 
@@ -216,7 +212,7 @@ def load_model(args, accelerator):
         detector = TransformerDetector(config_testr)
 
         # load testr pretrained weights
-        ckpt = torch.load('./model_ckpts/totaltext_testr_R_50_polygon.pth', map_location="cpu")
+        ckpt = torch.load(cfg.ckpt.init_path.ts_module, map_location="cpu")
         load_result = detector.load_state_dict(ckpt['model'], strict=False)
         
         if accelerator.is_main_process:
@@ -227,17 +223,16 @@ def load_model(args, accelerator):
 
 
     # load vlm captioner 
-    if not args.load_precomputed_caption:
+    if not cfg.model.dit.load_precomputed_caption:
         from llava.llm_agent import LLavaAgent
         from CKPT_PTH import LLAVA_MODEL_PATH
         llava_agent = LLavaAgent(LLAVA_MODEL_PATH, accelerator.device, load_8bit=True, load_4bit=False)
         models['vlm_agent'] = llava_agent
 
-
     return models 
 
 
-def load_model_params(args, models):
+def load_model_params(cfg, models):
 
     tot_param_names=[]
     train_param_names=[]
@@ -253,7 +248,7 @@ def load_model_params(args, models):
         tot_param_names.append(name)
 
         # dit4sr baseline (training only the lr branch)
-        if args.finetune == 'dit4sr_lr_branch':
+        if cfg.train.finetune_method == 'dit4sr_lr_branch':
             if 'control' in name:
                 param.requires_grad = True
                 train_param_count += numel
@@ -265,10 +260,10 @@ def load_model_params(args, models):
         
 
         # other method
-        elif args.finetune == 'add other':
+        elif cfg.train.finetune_method == 'add other':
             pass
     
-    if args.model_name == 'dit4sr_stage2':
+    if cfg.train.finetune_model == 'dit4sr_testr':
         for name, param in models['testr'].named_parameters():
             # Count total parameters
             numel = param.numel()
@@ -295,37 +290,37 @@ def load_model_params(args, models):
 
 
 
-def load_optim(args, accelerator, models):
+def load_optim(cfg, accelerator, models):
 
     # scale lr
-    if args.scale_lr:
-        args.learning_rate = (args.learning_rate * args.gradient_accumulation_steps * args.train_batch_size * accelerator.num_processes)
+    if cfg.train.scale_lr:
+        cfg.train.learning_rate.dit = (cfg.train.learning_rate.dit * cfg.train.gradient_accumulation_steps * cfg.train.batch_size * accelerator.num_processes)
 
     # setup optimizer class
-    optimizer_class = bnb.optim.AdamW8bit if args.use_8bit_adam else torch.optim.AdamW
+    optimizer_class = bnb.optim.AdamW8bit if cfg.train.use_8bit_adam else torch.optim.AdamW
 
 
     # separate trainable parameters
     transformer_params = list(filter(lambda p: p.requires_grad, models['transformer'].parameters()))
     testr_params = list(filter(lambda p: p.requires_grad, models['testr'].parameters()))
 
-    # # define parameter groups with different LRs
-    # param_groups = [
-    #     {"params": transformer_params, "lr": args.transformer_lr if hasattr(args, "transformer_lr") else args.learning_rate},
-    #     {"params": testr_params, "lr": args.testr_lr if hasattr(args, "testr_lr") else args.ts_module_lr},
-    # ]
-
     # define parameter groups with different LRs
     param_groups = [
-        {"params": testr_params, "lr": args.testr_lr if hasattr(args, "testr_lr") else args.ts_module_lr},
+        {"params": transformer_params, "lr": cfg.train.learning_rate.dit},
+        {"params": testr_params, "lr": cfg.train.learning_rate.ts_module},
     ]
+
+    # # define parameter groups with different LRs
+    # param_groups = [
+    #     {"params": testr_params, "lr": cfg.train.learning_rate.ts_module},
+    # ]
 
     # optimizer
     optimizer = optimizer_class(
         param_groups,
-        betas=(args.adam_beta1, args.adam_beta2),
-        weight_decay=args.adam_weight_decay,
-        eps=args.adam_epsilon,
+        betas=(0.9, 0.999),
+        weight_decay=0.01,
+        eps=1e-08,
     )
 
     # # load trainable params
@@ -343,28 +338,23 @@ def load_optim(args, accelerator, models):
     return optimizer
 
 
-def load_trackers(args, accelerator):
+def load_trackers(cfg, accelerator):
     # We need to initialize the trackers we use, and also store our configuration.
     # The trackers initializes automatically on the main process.
     if accelerator.is_main_process:
-        tracker_config = dict(vars(args))
-
-        # tensorboard cannot handle list types for config
-        tracker_config.pop("validation_prompt")
-        tracker_config.pop("validation_image")
-        wandb.login(key='e32eed0c2509bf898b850b0065ab62345005fb73')
+        wandb.login(key=cfg.log.tracker.key)
         accelerator.init_trackers(
-            project_name=args.tracker_project_name,
-            config=tracker_config,
+            project_name=cfg.log.tracker.project_name,
+            config=argparse.Namespace(**OmegaConf.to_container(cfg, resolve=True)),
             init_kwargs={
                     'wandb':{
-                        'name': args.tracker_run_name,}
+                        'name': cfg.log.tracker.run_name,}
                 }
         )
 
 
 
-def set_model_device(args, accelerator, models):
+def set_model_device(cfg, accelerator, models):
 
     # For mixed precision training we cast the text_encoder and vae weights to half-precision
     # as these models are only used for inference, keeping weights in full precision is not required.
@@ -387,7 +377,7 @@ def set_model_device(args, accelerator, models):
             pass
 
     # Make sure the trainable params are in float32.
-    if args.mixed_precision == "fp16":
+    if cfg.train.mixed_precision == "fp16":
         tmp_models = [models['transformer']]
         # only upcast trainable parameters (LoRA) into fp32
         cast_training_params(tmp_models, dtype=torch.float32)

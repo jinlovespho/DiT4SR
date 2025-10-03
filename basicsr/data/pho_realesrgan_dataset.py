@@ -53,11 +53,11 @@ class PhoRealESRGANDataset(data.Dataset):
         super(PhoRealESRGANDataset, self).__init__()
 
         opt = {}
-        opt['data_name'] = args.data_name
-        opt['data_path'] = args.data_path
-        opt['hq_prompt_path'] = args.hq_prompt_path
+        opt['data_name'] = args.name
+        opt['data_path'] = args.satext.data_path
+        opt['hq_prompt_path'] = args.satext.hq_prompt_path
         # opt['lq_prompt_path'] = args.lq_prompt_path 
-        opt['null_text_ratio'] = args.null_text_ratio
+        opt['null_text_ratio'] = args.satext.null_text_ratio
         opt['val_num_img'] = 30     # manually set, but we dont use it
         # opt['gt_path'] = args.data_path
         opt['queue_size'] = 160
