@@ -45,6 +45,12 @@ from diffusers.pipelines.stable_diffusion_3.pipeline_output import StableDiffusi
 
 from utils.vaehook import VAEHook
 
+from einops import rearrange 
+from torch.cuda.amp import autocast
+from dataloaders.utils import encode, decode 
+import numpy as np 
+from train.train_utils import encode_prompt
+
 if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
 
@@ -190,8 +196,12 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
         text_encoder_3: T5EncoderModel,
         tokenizer_3: T5TokenizerFast,
         tokenizer_2: CLIPTokenizer,
+        ts_module = None
     ):
         super().__init__()
+
+        if ts_module is not None:
+            self.ts_module = ts_module
 
         self.register_modules(
             vae=vae,
@@ -929,6 +939,7 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
         device = self._execution_device
         dtype = self.transformer.dtype
 
+
         (
             prompt_embeds,
             negative_prompt_embeds,
@@ -951,6 +962,7 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
             num_images_per_prompt=num_images_per_prompt,
             max_sequence_length=max_sequence_length,
         )
+
 
         control_image = self.prepare_image(
                 image=control_image,
@@ -975,7 +987,7 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
         # # image_embedding = torch.cat([image_embedding, pad_tensor], dim=1)
         # prompt_embeds = torch.cat([prompt_embeds, image_embedding], dim=-2)
 
-        control_image = self.vae.encode(control_image).latent_dist.sample()
+        control_image = self.vae.encode(control_image).latent_dist.sample() # b 3 512 512 
         control_image = (control_image - self.vae.config.shift_factor) * self.vae.config.scaling_factor
 
         # 4. Prepare timesteps
@@ -1020,6 +1032,7 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
             else:
                 print(f"[Tiled Latent]: the input size is {latents.shape[-2]}x{latents.shape[-1]}, need to tiled")
 
+            val_ocr_result=[]
             for i, t in enumerate(timesteps):
                 if self.interrupt:
                     continue
@@ -1046,8 +1059,8 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
                     else:
                         pooled_prompt_embeds_input = pooled_prompt_embeds
                     
-                # controlnet(s) inference
-                    noise_pred = self.transformer(
+                    # controlnet(s) inference
+                    trans_out = self.transformer(
                         hidden_states=latent_model_input,                       # b 16 64 64 
                         controlnet_image=control_image,                         # b 16 64 64 
                         timestep=timestep,                                      # b      
@@ -1055,7 +1068,63 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
                         pooled_projections=pooled_prompt_embeds_input,          # b 2048
                         joint_attention_kwargs=self.joint_attention_kwargs,
                         return_dict=False,
-                    )[0]
+                    )
+                    noise_pred = trans_out[0]
+
+                    if len(trans_out) > 1:
+                        etc_out = trans_out[1]
+                        # unpatchify
+                        patch_size = self.transformer.config.patch_size  # 2
+                        hidden_dim = self.transformer.config.num_attention_heads * self.transformer.config.attention_head_dim     # 1536
+                        height = 64 // patch_size       # 32
+                        width = 64 // patch_size        # 32
+                        extracted_feats = [rearrange(feat['extract_feat'], 'b (H W) (pH pW d) -> b d (H pH) (W pW)', H=height, W=width, pH=patch_size, pW=patch_size) for feat in etc_out ]    # b 384 64 64 
+                        extracted_feats = [f.to(torch.float32) for f in extracted_feats]
+                        with torch.cuda.amp.autocast(enabled=False):
+                            with torch.no_grad():
+                                _, ocr_result = self.ts_module(extracted_feats, targets=None, MODE='VAL')                        
+                        results_per_img = ocr_result[0]
+                        if i==20:
+                            val_ocr_result = ocr_result
+
+
+                        ts_pred_text=[]
+                        pred_polys=[]
+                        
+                        for j in range(len(results_per_img.polygons)):
+                            val_ctrl_pnt= results_per_img.polygons[j].view(16,2).cpu().detach().numpy().astype(np.int32)    # 32 -> 16 2
+                            val_rec = results_per_img.recs[j]
+                            val_pred_text = decode(val_rec)
+                            
+                            pred_polys.append(val_ctrl_pnt)
+                            ts_pred_text.append(val_pred_text)
+                        pred_prompt = [f"{', '.join(ts_pred_text)}"]
+
+                        # ts module inference prompt 
+                        (
+                            prompt_embeds,
+                            _,
+                            pooled_prompt_embeds,
+                            _,
+                        ) = self.encode_prompt(
+                            prompt=pred_prompt,
+                            prompt_2=None,
+                            prompt_3=None,
+                            negative_prompt=None,
+                            negative_prompt_2=None,
+                            negative_prompt_3=None,
+                            do_classifier_free_guidance=False,
+                            prompt_embeds=None,
+                            negative_prompt_embeds=None,
+                            pooled_prompt_embeds=None,
+                            negative_pooled_prompt_embeds=None,
+                            device=device,
+                            clip_skip=None,
+                            num_images_per_prompt=num_images_per_prompt,
+                            max_sequence_length=max_sequence_length,
+                        )
+
+
                 else:
                     tile_weights = self._gaussian_weights(tile_size, tile_size, 1)
                     tile_size = min(tile_size, min(h, w))
@@ -1207,14 +1276,14 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
 
         else:
             latents = (latents / self.vae.config.scaling_factor) + self.vae.config.shift_factor
-
-            image = self.vae.decode(latents, return_dict=False)[0]
+            with torch.cuda.amp.autocast(enabled=True):
+                image = self.vae.decode(latents, return_dict=False)[0]  # b 3 512 512 
             image = self.image_processor.postprocess(image, output_type=output_type)
 
         # Offload all models
         self.maybe_free_model_hooks()
 
         if not return_dict:
-            return (image,)
+            return (image, val_ocr_result)
 
         return StableDiffusion3PipelineOutput(images=image)

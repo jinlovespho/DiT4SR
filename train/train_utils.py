@@ -138,17 +138,39 @@ def compute_text_embeddings(args, accelerator, batch, text_encoders, tokenizers)
     return {"prompt_embeds": prompt_embeds, "pooled_prompt_embeds": pooled_prompt_embeds}
 
 
+# def get_sigmas(timesteps, accelerator, noise_scheduler_copy, n_dim=4, dtype=torch.float32):
+#         sigmas = noise_scheduler_copy.sigmas.to(device=accelerator.device, dtype=dtype)
+#         schedule_timesteps = noise_scheduler_copy.timesteps.to(accelerator.device)
+#         timesteps = timesteps.to(accelerator.device)
+#         step_indices = [(schedule_timesteps == t).nonzero().item() for t in timesteps]
+
+#         sigma = sigmas[step_indices].flatten()
+#         while len(sigma.shape) < n_dim:
+#             sigma = sigma.unsqueeze(-1)
+#         return sigma
+
 def get_sigmas(timesteps, accelerator, noise_scheduler_copy, n_dim=4, dtype=torch.float32):
-        sigmas = noise_scheduler_copy.sigmas.to(device=accelerator.device, dtype=dtype)
-        schedule_timesteps = noise_scheduler_copy.timesteps.to(accelerator.device)
-        timesteps = timesteps.to(accelerator.device)
-        step_indices = [(schedule_timesteps == t).nonzero().item() for t in timesteps]
+    sigmas = noise_scheduler_copy.sigmas.to(device=accelerator.device, dtype=dtype)
+    schedule_timesteps = noise_scheduler_copy.timesteps.cpu().long()  # keep on CPU for safe search
+    timesteps_cpu = timesteps.detach().cpu().long().flatten()
 
-        sigma = sigmas[step_indices].flatten()
-        while len(sigma.shape) < n_dim:
-            sigma = sigma.unsqueeze(-1)
-        return sigma
+    step_indices = []
+    for t in timesteps_cpu.tolist():
+        matches = (schedule_timesteps == t).nonzero(as_tuple=False)
+        if matches.numel() == 0:
+            raise ValueError(
+                f"[get_sigmas] Timestep {t} not found in scheduler timesteps. "
+                f"Valid range: {int(schedule_timesteps.min().item())}–{int(schedule_timesteps.max().item())}"
+            )
+        step_indices.append(int(matches[0].item()))
 
+    step_indices = torch.tensor(step_indices, device=accelerator.device, dtype=torch.long)
+    sigma = sigmas[step_indices].flatten()
+
+    while sigma.ndim < n_dim:
+        sigma = sigma.unsqueeze(-1)
+
+    return sigma
 
 def remove_focus_sentences(text):
     # 使用正则表达式按照 . ? ! 分割，并且保留分隔符本身

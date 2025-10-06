@@ -2,6 +2,7 @@ import argparse
 import math
 from diffusers.optimization import get_scheduler
 import os
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 import shutil
 import sys
 sys.path.append(os.getcwd())
@@ -20,9 +21,15 @@ from train_utils import _encode_prompt_with_t5, _encode_prompt_with_clip, encode
 from dataloaders.utils import realesrgan_degradation
 import train_utils 
 
+import wandb
 from torchvision.utils import save_image 
 import pyiqa
 from einops import rearrange 
+import cv2 
+import numpy as np 
+
+from dataloaders.utils import encode, decode 
+from pipelines.pipeline_dit4sr import StableDiffusion3ControlNetPipeline
 
 logger = get_logger(__name__)
 
@@ -72,7 +79,9 @@ def main(cfg):
     )
 
     # Prepare everything with our `accelerator`.
-    transformer, ts_module, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(models['transformer'], models['testr'], optimizer, train_dataloader, lr_scheduler)
+    # transformer, ts_module, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(models['transformer'], models['testr'], optimizer, train_dataloader, lr_scheduler)
+    # transformer, models['testr'], optimizer, train_dataloader, lr_scheduler = accelerator.prepare(models['transformer'], models['testr'], optimizer, train_dataloader, lr_scheduler)
+    transformer, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(models['transformer'], optimizer, train_dataloader, lr_scheduler)
     vae_img_processor = VaeImageProcessor(vae_scale_factor=8)
 
     # We need to recalculate our total training steps as the size of the training dataloader may have changed.
@@ -85,16 +94,24 @@ def main(cfg):
     initialize.load_trackers(cfg, accelerator)
 
 
-    # # SR metrics
-    # metric_psnr = pyiqa.create_metric('psnr', device=accelerator.device)
-    # metric_ssim = pyiqa.create_metric('ssimc', device=accelerator.device)
-    # metric_lpips = pyiqa.create_metric('lpips', device=accelerator.device)
-    # metric_dists = pyiqa.create_metric('dists', device=accelerator.device)
-    # # metric_fid = pyiqa.create_metric('fid', device=device)
-    # metric_niqe = pyiqa.create_metric('niqe', device=accelerator.device)
-    # metric_musiq = pyiqa.create_metric('musiq', device=accelerator.device)
-    # metric_maniqa = pyiqa.create_metric('maniqa', device=accelerator.device)
-    # metric_clipiqa = pyiqa.create_metric('clipiqa', device=accelerator.device)
+    # Get the validation pipeline
+    val_pipeline = StableDiffusion3ControlNetPipeline(
+        vae=models['vae'], text_encoder=models['text_encoders'][0], text_encoder_2=models['text_encoders'][1], text_encoder_3=models['text_encoders'][2], 
+        tokenizer=models['tokenizers'][0], tokenizer_2=models['tokenizers'][1], tokenizer_3=models['tokenizers'][2], 
+        transformer=transformer, scheduler=models['noise_scheduler'], ts_module = models['testr']
+    )
+
+
+    # SR metrics
+    metric_psnr = pyiqa.create_metric('psnr', device=accelerator.device)
+    metric_ssim = pyiqa.create_metric('ssimc', device=accelerator.device)
+    metric_lpips = pyiqa.create_metric('lpips', device=accelerator.device)
+    metric_dists = pyiqa.create_metric('dists', device=accelerator.device)
+    # metric_fid = pyiqa.create_metric('fid', device=device)
+    metric_niqe = pyiqa.create_metric('niqe', device=accelerator.device)
+    metric_musiq = pyiqa.create_metric('musiq', device=accelerator.device)
+    metric_maniqa = pyiqa.create_metric('maniqa', device=accelerator.device)
+    metric_clipiqa = pyiqa.create_metric('clipiqa', device=accelerator.device)
 
 
     tot_train_epochs = cfg.train.num_train_epochs
@@ -112,7 +129,7 @@ def main(cfg):
 
     logger.info("=== Training Setup ===")
     logger.info(f"  Num training samples = {len(train_dataloader.dataset)}")
-    # logger.info(f"  Num validation samples = {len(val_dataloader.dataset)}")
+    logger.info(f"  Num validation samples = {len(val_dataloader.dataset)}")
     logger.info(f"  Num batches each epoch = {len(train_dataloader)}")
     logger.info(f"  Num Epochs = {tot_train_epochs}")
     logger.info(f"  Instantaneous batch size per device = {cfg.train.batch_size}")
@@ -134,8 +151,6 @@ def main(cfg):
 
     ocr_loss = 0.0 
     ocr_losses={}  
-    ocr_loss_weight=0.01
-
 
 
     # Potentially load in the weights and states from a previous save
@@ -156,8 +171,19 @@ def main(cfg):
             cfg.ckpt.resume_path.dit = None
             initial_global_step = 0
         else:
+            # load transformer ckpt
             accelerator.print(f"Resuming from checkpoint {path}")
-            accelerator.load_state(os.path.join(cfg.save.output_dir, cfg.log.tracker.run_name, path))
+            resume_path = os.path.join(cfg.save.output_dir, cfg.log.tracker.run_name, path)
+            accelerator.load_state(resume_path)
+            # accelerator.load_state(os.path.join(cfg.save.output_dir, cfg.log.tracker.run_name, path))
+            # load ts_module ckpt
+            ts_ckpt_path = os.path.join(resume_path, f"ts_module{int(path.split('-')[-1]):07d}.pt")
+            ckpt = torch.load(ts_ckpt_path, map_location="cpu")
+            load_result = models['testr'].load_state_dict(ckpt['ts_module'], strict=False)
+            print("Loaded TESTR checkpoint keys:")
+            print(" - Missing keys:", load_result.missing_keys)
+            print(" - Unexpected keys:", load_result.unexpected_keys)
+
             global_step = int(path.split("-")[1])
 
             initial_global_step = global_step
@@ -186,16 +212,17 @@ def main(cfg):
                 img_id = batch['img_id']
             
 
-            with accelerator.accumulate([transformer, ts_module]):
+            with accelerator.accumulate([transformer]):
 
                 if cfg.data.name == 'satext':
                     with torch.no_grad():
                         # hq vae encoding
-                        gt = gt * 2.0 - 1.0 # b 3 512 512 
+                        gt = gt.to(device=accelerator.device, dtype=weight_dtype) * 2.0 - 1.0   # b 3 512 512 
                         hq_latents = models['vae'].encode(gt).latent_dist.sample()  # b 16 64 64
                         model_input = (hq_latents - models['vae'].config.shift_factor) * models['vae'].config.scaling_factor    # b 16 64 64 
+                        model_input = model_input.to(dtype=weight_dtype)
                         # lq vae encoding
-                        lq = lq * 2.0 - 1.0 # b 3 512 512 
+                        lq = lq.to(device=accelerator.device, dtype=weight_dtype) * 2.0 - 1.0   # b 3 512 512 
                         lq_latents = models['vae'].encode(lq).latent_dist.sample()  # b 16 64 64 
                         controlnet_image = (lq_latents - models['vae'].config.shift_factor) * models['vae'].config.scaling_factor   # b 16 64 64 
                         controlnet_image = controlnet_image.to(dtype=weight_dtype)
@@ -207,6 +234,10 @@ def main(cfg):
                             lq_tmp = F.interpolate(lq, size=(336, 336), mode="bilinear", align_corners=False)
                             hq_prompt = models['vlm_agent'].gen_image_caption(lq_tmp)
                             hq_prompt = [train_utils.remove_focus_sentences(p) for p in hq_prompt]
+
+                        if cfg.model.dit.use_gtprompt:
+                            hq_prompt=[', '.join(words) for words in text]  # gt words using tag style
+
                         # encode prompt 
                         prompt_embeds, pooled_prompt_embeds = encode_prompt(models['text_encoders'], models['tokenizers'], hq_prompt, 77)
                         prompt_embeds = prompt_embeds.to(model_input.dtype)                 # b 154 4096
@@ -232,6 +263,7 @@ def main(cfg):
                     logit_std=cfg.model.noise_scheduler.logit_std,
                     mode_scale=cfg.model.noise_scheduler.mode_scale,
                 )
+
                 indices = (u * models['noise_scheduler_copy'].config.num_train_timesteps).long()
                 timesteps = models['noise_scheduler_copy'].timesteps[indices].to(device=model_input.device)
 
@@ -239,16 +271,16 @@ def main(cfg):
                 # zt = (1 - texp) * x + texp * z1
                 sigmas = get_sigmas(timesteps, accelerator, models['noise_scheduler_copy'], n_dim=model_input.ndim, dtype=model_input.dtype)    # b 1 1 1
                 noisy_model_input = (1.0 - sigmas) * model_input + sigmas * noise   # b 16 64 64 
-                # Predict the noise residual
-                trans_out = transformer(                       
-                    hidden_states=noisy_model_input,            # b 16 64 64 
-                    controlnet_image=controlnet_image,          # b 16 16 16  
-                    timestep=timesteps,                         # b
-                    encoder_hidden_states=prompt_embeds,        # b 154 4096
-                    pooled_projections=pooled_prompt_embeds,    # b 2048
-                    return_dict=False,
-                )
-
+                with torch.cuda.amp.autocast(enabled=False):
+                    # Predict the noise residual
+                    trans_out = transformer(                       
+                        hidden_states=noisy_model_input,            # b 16 64 64 
+                        controlnet_image=controlnet_image,          # b 16 16 16  
+                        timestep=timesteps,                         # b
+                        encoder_hidden_states=prompt_embeds,        # b 154 4096
+                        pooled_projections=pooled_prompt_embeds,    # b 2048
+                        return_dict=False,
+                    )
                 model_pred = trans_out[0]   # b 16 64 64
 
                 if len(trans_out) > 1:
@@ -265,16 +297,12 @@ def main(cfg):
                 (Pdb) extracted_feats[1].shape  torch.Size([2, 1280, 32, 32])
                 (Pdb) extracted_feats[2].shape  torch.Size([2, 640, 64, 64])
                 (Pdb) extracted_feats[3].shape  torch.Size([2, 320, 64, 64])
-                '''
 
-                '''
                 (Pdb) trans_out[0]['extract_feat'].shape    torch.Size([2, 1024, 1536])
                 (Pdb) trans_out[1]['extract_feat'].shape    torch.Size([2, 1024, 1536])
                 (Pdb) trans_out[2]['extract_feat'].shape    torch.Size([2, 1024, 1536])
                 (Pdb) trans_out[3]['extract_feat'].shape    torch.Size([2, 1024, 1536])
-                
                 '''
-
 
 
                 # Follow: Section 5 of https://arxiv.org/abs/2206.00364.
@@ -307,13 +335,14 @@ def main(cfg):
                     for i in range(bsz):
                         num_box=len(boxes[i])
                         tmp_dict={}
-                        tmp_dict['labels'] = torch.tensor([0]*num_box).cuda()  # 0 for text
-                        tmp_dict['boxes'] = torch.tensor(boxes[i]).cuda()
+                        tmp_dict['labels'] = torch.tensor([0]*num_box).to(accelerator.device)  # 0 for text
+                        tmp_dict['boxes'] = torch.tensor(boxes[i]).to(accelerator.device)   # xyxy format, absolute coord, [num_box, 4]
                         tmp_dict['texts'] = text_encs[i]
                         tmp_dict['ctrl_points'] = polys[i]
                         train_targets.append(tmp_dict)
-                    # OCR model forward pass
-                    ocr_loss_dict, _ = models['testr'](extracted_feats, train_targets)
+                    with torch.cuda.amp.autocast(enabled=False):
+                        # OCR model forward pass
+                        ocr_loss_dict, ocr_result = models['testr'](extracted_feats, train_targets, MODE='TRAIN')
                     # OCR total_loss
                     ocr_tot_loss = sum(v for v in ocr_loss_dict.values())
                     # OCR losses
@@ -322,13 +351,12 @@ def main(cfg):
                             ocr_losses[ocr_key].append(ocr_val.item())
                         else:
                             ocr_losses[ocr_key]=[ocr_val.item()]
-                    total_loss = diff_loss + ocr_loss_weight * ocr_tot_loss      
+                    total_loss = diff_loss + cfg.train.ocr_loss_weight * ocr_tot_loss      
                 else:
                     total_loss = diff_loss
                     ocr_tot_loss=torch.tensor(0).cuda()
 
-
-
+                # backpropagate
                 accelerator.backward(total_loss)
                 if accelerator.sync_gradients:
                     # params_to_clip = controlnet.parameters()
@@ -338,6 +366,53 @@ def main(cfg):
                 lr_scheduler.step()
                 optimizer.zero_grad(set_to_none=cfg.train.set_grads_to_none)
 
+
+                ## -------------------- vis training ocr results -------------------- 
+                if cfg.val.log_train_ocr_result_every != -1 and global_step % cfg.val.log_train_ocr_result_every == 0:
+                    print('== logging training ocr results ===')
+                    train_ocr_save_path = f'{cfg.save.output_dir}/{cfg.log.tracker.run_name}/ocr_result_train'
+                    os.makedirs(train_ocr_save_path, exist_ok=True)
+
+                    img_lq = lq.detach().permute(0,2,3,1).cpu().numpy() # b h w c
+                    img_gt = gt.detach().permute(0,2,3,1).cpu().numpy()
+
+                    for vis_batch_idx in range(len(ocr_result)):
+                        # vis_lq = img_lq[vis_batch_idx] # h w c 
+                        # vis_lq = (vis_lq + 1.0)/2.0 * 255.0
+                        # vis_lq = vis_lq.astype(np.uint8)
+                        # vis_lq = vis_lq.copy()
+
+                        vis_gt = img_gt[vis_batch_idx] # h w c
+                        vis_gt = (vis_gt + 1.0)/2.0 * 255.0
+                        vis_gt = vis_gt.astype(np.uint8)
+                        vis_pred = vis_gt.copy()
+                        vis_gt = vis_gt.copy()
+
+                        ocr_res = ocr_result[vis_batch_idx]
+                        vis_polys = ocr_res.polygons.view(-1,16,2)  # b 16 2
+                        vis_recs = ocr_res.recs                     # b 25
+                        for vis_img_idx in range(len(vis_polys)):
+                            pred_poly = vis_polys[vis_img_idx]   # 16 2
+                            pred_poly = np.array(pred_poly.detach().cpu()).astype(np.int32)         
+                            pred_rec = vis_recs[vis_img_idx]     # 25
+                            pred_txt = decode(pred_rec.tolist())
+                            cv2.polylines(vis_pred, [pred_poly], isClosed=True, color=(0,255,0), thickness=2)
+                            cv2.putText(vis_pred, pred_txt, (pred_poly[0][0], pred_poly[0][1]-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1)
+                        cv2.imwrite(f'{train_ocr_save_path}/step{global_step}_{img_id[vis_batch_idx]}_ocr_pred.jpg.jpg', vis_pred[:,:,::-1])
+
+                        gt_polys = polys[vis_batch_idx]             # b 16 2
+                        gt_texts = text[vis_batch_idx]
+                        for vis_img_idx in range(len(gt_polys)):
+                            gt_poly = gt_polys[vis_img_idx]*512.0   # 16 2
+                            gt_poly = np.array(gt_poly.detach().cpu()).astype(np.int32)
+                            gt_txt = gt_texts[vis_img_idx]
+                            cv2.polylines(vis_gt, [gt_poly], isClosed=True, color=(0,255,0), thickness=2)
+                            cv2.putText(vis_gt, gt_txt, (gt_poly[0][0], gt_poly[0][1]-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1)
+                        cv2.imwrite(f'{train_ocr_save_path}/step{global_step}_{img_id[vis_batch_idx]}_ocr_gt.jpg', vis_gt[:,:,::-1])
+                ## -------------------- vis training ocr results -------------------- 
+
+
+
             # Checks if the accelerator has performed an optimization step behind the scenes
             if accelerator.sync_gradients:
                 progress_bar.update(1)
@@ -345,64 +420,229 @@ def main(cfg):
 
                 if accelerator.is_main_process:
                     if global_step % cfg.save.checkpointing_steps == 0:
-                        ckpt_save_path = f'{cfg.save.output_dir}/{cfg.log.tracker.run_name}'
-                        # _before_ saving state, check if this save would set us over the `checkpoints_total_limit`
-                        if cfg.save.checkpoints_total_limit is not None:
-                            checkpoints = os.listdir(ckpt_save_path)
-                            checkpoints = [d for d in checkpoints if d.startswith("checkpoint")]
-                            checkpoints = sorted(checkpoints, key=lambda x: int(x.split("-")[1]))
-
-                            # before we save the new checkpoint, we need to have at _most_ `checkpoints_total_limit - 1` checkpoints
-                            if len(checkpoints) >= cfg.save.checkpoints_total_limit:
-                                num_to_remove = len(checkpoints) - cfg.save.checkpoints_total_limit + 1
-                                removing_checkpoints = checkpoints[0:num_to_remove]
-
-                                logger.info(
-                                    f"{len(checkpoints)} checkpoints already exist, removing {len(removing_checkpoints)} checkpoints"
-                                )
-                                logger.info(f"removing checkpoints: {', '.join(removing_checkpoints)}")
-
-                                for removing_checkpoint in removing_checkpoints:
-                                    removing_checkpoint = os.path.join(ckpt_save_path, removing_checkpoint)
-                                    shutil.rmtree(removing_checkpoint)
-
+                        # save transformer
                         save_path = os.path.join(cfg.save.output_dir, cfg.log.tracker.run_name, f"checkpoint-{global_step}")
                         accelerator.save_state(save_path)
+                        # save ts_module
+                        ts_ckpt = {}
+                        ts_ckpt['ts_module'] = models['testr'].state_dict()
+                        ckpt_path = f"{save_path}/ts_module{global_step:07d}.pt"
+                        torch.save(ts_ckpt, ckpt_path)
                         logger.info(f"Saved state to {save_path}")
 
                     if global_step==1 or global_step % cfg.val.val_every_step == 0:
-                        # visualize the restored image from the transformer output
-                        with torch.no_grad():
-                            # Option A: precondition_outputs=True → model_pred ≈ denoised latents
-                            restored_latents = model_pred
 
-                            # Option B: precondition_outputs=False → need to reconstruct denoised latents
-                            if not cfg.model.noise_scheduler.precondition_outputs:
-                                restored_latents = noisy_model_input - sigmas * model_pred
+                        tot_val_psnr=[]
+                        tot_val_ssim=[]
+                        tot_val_lpips=[]
+                        tot_val_dists=[]
+                        tot_val_niqe=[]
+                        tot_val_musiq=[]
+                        tot_val_maniqa=[]
+                        tot_val_clipiqa=[]
 
-                            # Decode latents into images
-                            restored_imgs = models['vae'].decode(restored_latents).sample
-                            restored_imgs = vae_img_processor.postprocess(restored_imgs, output_type="pil")  
+
+                        # val_pipeline = val_pipeline.to(torch.float16)
+
+                        for val_step, val_batch in enumerate(val_dataloader):
+
+                            if cfg.data.name == 'satext':
+                                val_batch = realesrgan_degradation(val_batch)
+
+                                val_gt = val_batch['gt']
+                                val_lq = val_batch['lq']
+                                val_text = val_batch['text']
+                                val_text_encs = val_batch['text_enc']
+                                val_hq_prompt = val_batch['hq_prompt']
+                                # lq_prompt = val_batch['lq_prompt']
+                                val_boxes = val_batch['bbox']    # len(bbox) = b
+                                val_polys = val_batch['poly']    # len(poly) = b
+                                val_img_id = val_batch['img_id']
+                                val_bs = val_gt.shape[0]
+
+
+                            if accelerator.is_main_process:
+                                generator = torch.Generator(device=accelerator.device)
+                                if cfg.init.seed is not None:
+                                    generator.manual_seed(cfg.init.seed)
+
+
+                            # val_lq = val_lq * 2.0 - 1.0 
+                            # val_gt = val_gt * 2.0 - 1.0
+                            val_lq = val_lq.to(device=accelerator.device, dtype=weight_dtype) * 2.0 - 1.0   # b 3 512 512 
+                            val_gt = val_gt.to(device=accelerator.device, dtype=weight_dtype) * 2.0 - 1.0   # b 3 512 512 
+                            num_inf_step=40
+                            guidance_scale = 1.0
+                            start_point = 'noise'
+                            val_prompt = ['' for _ in range(val_bs)]
+                            # neg_prompt = 'motion blur, noisy, dotted, bokeh, pointed, CG Style, 3D render, unreal engine, blurring, dirty, messy, worst quality, low quality, frames, watermark, signature, jpeg artifacts, deformed, lowres, chaotic'
+                            neg_prompt = None 
+                            
+                            with torch.no_grad():
+                                val_out = val_pipeline(
+                                                    prompt=val_prompt, 
+                                                    control_image=val_lq, 
+                                                    num_inference_steps=num_inf_step, 
+                                                    generator=generator, 
+                                                    height=512, 
+                                                    width=512,
+                                                    guidance_scale=guidance_scale, 
+                                                    negative_prompt=neg_prompt,
+                                                    start_point=start_point, 
+                                                    latent_tiled_size=64, 
+                                                    latent_tiled_overlap=24,
+                                                    output_type = 'pt',
+                                                    return_dict=False
+                                                )
+                            val_restored_img = val_out[0]
+                            val_ocr_result = val_out[1]
 
                             # Save as PNG
-                            val_save_path = f'{cfg.save.output_dir}/{cfg.log.tracker.run_name}/restored_img'
+                            val_save_path = f'{cfg.save.output_dir}/{cfg.log.tracker.run_name}/restored_val'
                             os.makedirs(val_save_path, exist_ok=True)
-                            val_save_imgs = zip(restored_imgs, img_id)
-                            for res_img, id in val_save_imgs:
-                                res_img.save(f'{val_save_path}/step{global_step}_{id}.png')              
+                            for val_idx in range(val_bs):
+                                # lq 
+                                val_lq_img = val_lq[val_idx]
+                                val_lq_img = (val_lq_img + 1.0) / 2.0
+                                # gt 
+                                val_gt_img = val_gt[val_idx]
+                                val_gt_img = (val_gt_img + 1.0) / 2.0
+                                # restored
+                                val_res_img = val_restored_img[val_idx]
+                                val_img = torch.concat([val_lq_img, val_res_img, val_gt_img], dim=2)
+                                # save_image(val_img, f'{val_save_path}/step{global_step}_valimg{val_step}_{val_img_id[val_idx]}.png')
+                                save_image(val_img, f'{val_save_path}/restored_{val_img_id[val_idx]}_step{global_step:09d}.png')
+                                # save_image(val_lq_img, f'{val_save_path}/step{global_step}_{val_img_id[val_idx]}.png', normalize=True)
+                                # save_image(val_res_img, f'{val_save_path}/step{global_step}_{val_img_id[val_idx]}.png', normalize=True)
+                            
+
+                            # log total psnr, ssim, lpips for val
+                            tot_val_psnr.append(torch.mean(metric_psnr(val_restored_img.to(torch.float32), torch.clamp((val_gt.to(torch.float32) + 1) / 2, min=0, max=1))).item())
+                            tot_val_ssim.append(torch.mean(metric_ssim(val_restored_img.to(torch.float32), torch.clamp((val_gt.to(torch.float32) + 1) / 2, min=0, max=1))).item())
+                            tot_val_lpips.append(torch.mean(metric_lpips(val_restored_img.to(torch.float32), torch.clamp((val_gt.to(torch.float32) + 1) / 2, min=0, max=1))).item())
+                            tot_val_dists.append(torch.mean(metric_dists(val_restored_img.to(torch.float32), torch.clamp((val_gt.to(torch.float32) + 1) / 2, min=0, max=1))).item())
+                            tot_val_niqe.append(torch.mean(metric_niqe(val_restored_img.to(torch.float32), torch.clamp((val_gt.to(torch.float32) + 1) / 2, min=0, max=1))).item())
+                            tot_val_musiq.append(torch.mean(metric_musiq(val_restored_img.to(torch.float32), torch.clamp((val_gt.to(torch.float32) + 1) / 2, min=0, max=1))).item())
+                            tot_val_maniqa.append(torch.mean(metric_maniqa(val_restored_img.to(torch.float32), torch.clamp((val_gt.to(torch.float32) + 1) / 2, min=0, max=1))).item())
+                            tot_val_clipiqa.append(torch.mean(metric_clipiqa(val_restored_img.to(torch.float32), torch.clamp((val_gt.to(torch.float32) + 1) / 2, min=0, max=1))).item())
+                        
+                            # log sampling val imgs to wandb
+                            if accelerator.is_main_process and cfg.log.tracker.report_to == 'wandb':
+
+                                # log sampling val metrics 
+                                wandb.log({f'val_metric/val_psnr': torch.mean(metric_psnr(
+                                                                                                val_restored_img.to(torch.float32), 
+                                                                                                torch.clamp((val_gt.to(torch.float32) + 1) / 2, min=0, max=1))).item(),
+                                        f'val_metric/val_ssim': torch.mean(metric_ssim(
+                                                                                                val_restored_img.to(torch.float32), 
+                                                                                                torch.clamp((val_gt.to(torch.float32) + 1) / 2, min=0, max=1))).item(),
+                                        f'val_metric/val_lpips': torch.mean(metric_lpips(
+                                                                                                val_restored_img.to(torch.float32), 
+                                                                                                torch.clamp((val_gt.to(torch.float32) + 1) / 2, min=0, max=1))).item(),
+                                        f'val_metric/val_dists': torch.mean(metric_dists(
+                                                                                                val_restored_img.to(torch.float32), 
+                                                                                                torch.clamp((val_gt.to(torch.float32) + 1) / 2, min=0, max=1))).item(),
+                                        f'val_metric/val_niqe': torch.mean(metric_niqe(
+                                                                                                val_restored_img.to(torch.float32), 
+                                                                                                torch.clamp((val_gt.to(torch.float32) + 1) / 2, min=0, max=1))).item(),
+                                        f'val_metric/val_musiq': torch.mean(metric_musiq(
+                                                                                                val_restored_img.to(torch.float32), 
+                                                                                                torch.clamp((val_gt.to(torch.float32) + 1) / 2, min=0, max=1))).item(),
+                                        f'val_metric/val_maniqa': torch.mean(metric_maniqa(
+                                                                                                val_restored_img.to(torch.float32), 
+                                                                                                torch.clamp((val_gt.to(torch.float32) + 1) / 2, min=0, max=1))).item(),
+                                        f'val_metric/val_clipiqa': torch.mean(metric_clipiqa(
+                                                                                                val_restored_img.to(torch.float32), 
+                                                                                                torch.clamp((val_gt.to(torch.float32) + 1) / 2, min=0, max=1))).item(),
+                                        }, step=global_step)
+
+
+                            ## -------------------- vis val ocr results -------------------- 
+                            print('== logging val ocr results ===')
+                            val_ocr_save_path = f'{cfg.save.output_dir}/{cfg.log.tracker.run_name}/ocr_result_val'
+                            os.makedirs(val_ocr_save_path, exist_ok=True)
+
+                            img_lq = val_lq.detach().permute(0,2,3,1).cpu().numpy() # b h w c
+                            img_gt = val_gt.detach().permute(0,2,3,1).cpu().numpy()
+
+                            for vis_batch_idx in range(len(val_gt)):
+                                # vis_lq = img_lq[vis_batch_idx] # h w c 
+                                # vis_lq = (vis_lq + 1.0)/2.0 * 255.0
+                                # vis_lq = vis_lq.astype(np.uint8)
+                                # vis_lq = vis_lq.copy()
+
+                                vis_gt = img_gt[vis_batch_idx] # h w c
+                                vis_gt = (vis_gt + 1.0)/2.0 * 255.0
+                                vis_gt = vis_gt.astype(np.uint8)
+                                vis_pred = vis_gt.copy()
+                                vis_gt = vis_gt.copy()
+
+                                ocr_res = val_ocr_result[vis_batch_idx]
+                                vis_polys = ocr_res.polygons.view(-1,16,2)  # b 16 2
+                                vis_recs = ocr_res.recs                     # b 25
+                                for vis_img_idx in range(len(vis_polys)):
+                                    pred_poly = vis_polys[vis_img_idx]   # 16 2
+                                    pred_poly = np.array(pred_poly.detach().cpu()).astype(np.int32)         
+                                    pred_rec = vis_recs[vis_img_idx]     # 25
+                                    pred_txt = decode(pred_rec.tolist())
+                                    cv2.polylines(vis_pred, [pred_poly], isClosed=True, color=(0,255,0), thickness=2)
+                                    cv2.putText(vis_pred, pred_txt, (pred_poly[0][0], pred_poly[0][1]-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1)
+                                # cv2.imwrite(f'{val_ocr_save_path}/ocr_pred_valimg{val_step}_{val_img_id[vis_batch_idx]}_step{global_step:09d}.jpg.jpg', vis_pred[:,:,::-1])
+                                cv2.imwrite(f'{val_ocr_save_path}/ocr_pred_{val_img_id[vis_batch_idx]}_step{global_step:09d}.jpg.jpg', vis_pred[:,:,::-1])
+
+                                gt_polys = val_polys[vis_batch_idx]             # b 16 2
+                                gt_texts = val_text[vis_batch_idx]
+                                for vis_img_idx in range(len(gt_polys)):
+                                    gt_poly = gt_polys[vis_img_idx]*512.0   # 16 2
+                                    gt_poly = np.array(gt_poly.detach().cpu()).astype(np.int32)
+                                    gt_txt = gt_texts[vis_img_idx]
+                                    cv2.polylines(vis_gt, [gt_poly], isClosed=True, color=(0,255,0), thickness=2)
+                                    cv2.putText(vis_gt, gt_txt, (gt_poly[0][0], gt_poly[0][1]-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1)
+                                # cv2.imwrite(f'{val_ocr_save_path}/ocr_gt_valimg{val_step}_{val_img_id[vis_batch_idx]}.jpg', vis_gt[:,:,::-1])
+                                cv2.imwrite(f'{val_ocr_save_path}/ocr_gt_{val_img_id[vis_batch_idx]}.jpg', vis_gt[:,:,::-1])
+                            ## -------------------- vis val ocr results -------------------- 
+                        
+                        # average using numpy
+                        tot_val_psnr = np.array(tot_val_psnr).mean()
+                        tot_val_ssim = np.array(tot_val_ssim).mean()
+                        tot_val_lpips = np.array(tot_val_lpips).mean()
+                        tot_val_dists = np.array(tot_val_dists).mean()
+                        tot_val_niqe = np.array(tot_val_niqe).mean()
+                        tot_val_musiq = np.array(tot_val_musiq).mean()
+                        tot_val_maniqa = np.array(tot_val_maniqa).mean()
+                        tot_val_clipiqa = np.array(tot_val_clipiqa).mean()
+
+                        # log total val metrics 
+                        if accelerator.is_main_process and cfg.log.tracker.report_to == 'wandb':
+                            wandb.log({
+                                f'val_metric/tot_val_psnr': tot_val_psnr,
+                                f'val_metric/tot_val_ssim': tot_val_ssim,
+                                f'val_metric/tot_val_lpips': tot_val_lpips,
+                                f'val_metric/tot_val_dists': tot_val_dists,
+                                f'val_metric/tot_val_niqe': tot_val_niqe,
+                                f'val_metric/tot_val_musiq': tot_val_musiq,
+                                f'val_metric/tot_val_maniqa': tot_val_maniqa,
+                                f'val_metric/tot_val_clipiqa': tot_val_clipiqa,
+                            }, step=global_step)
+
+    
+            # TRYING TO LOG PROMPT TEXT CONDITION
+            # if accelerator.is_main_process and cfg.log.tracker.report_to == 'wandb':
+            #     wandb.log({"text/text_condition": wandb.Text("\n".join(hq_prompt))}, step=global_step)
 
 
             # log 
-            logs = {"total_loss": total_loss.detach().item(), 
-                    'diff_loss': diff_loss.detach().item(),
-                    "lr": lr_scheduler.get_last_lr()[0]}
+            logs = {"loss/total_loss": total_loss.detach().item(), 
+                    'loss/diff_loss': diff_loss.detach().item(),
+                    "optim/lr": lr_scheduler.get_last_lr()[0],
+                    }
             
             # ocr log
             if cfg.train.finetune_model in ['dit4sr_testr']:
-                logs["ocr_tot_loss"] = ocr_tot_loss.detach().item()
-                logs['ts_module_lr'] = cfg.train.learning_rate.ts_module
+                logs["loss/ocr_tot_loss"] = ocr_tot_loss.detach().item()
+                logs['optim/ts_module_lr'] = cfg.train.learning_rate.ts_module
                 for ocr_key, ocr_val in ocr_loss_dict.items():
-                    logs[f"ocr_{ocr_key}"] = ocr_val.detach().item()
+                    logs[f"loss/ocr_{ocr_key}"] = ocr_val.detach().item()
 
 
             progress_bar.set_postfix(**logs)

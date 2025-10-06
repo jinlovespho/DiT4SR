@@ -62,7 +62,11 @@ def load_data_files(opt, mode):
     imgs_path = sorted(glob.glob(f'{data_path}/{mode}/*.jpg'))
     
     # load precomputed prompts 
-    hq_prompts_path = sorted(glob.glob(f"{opt['hq_prompt_path']}/*.txt"))
+    if mode == 'train':
+        prompt_path = opt['hq_prompt_path']
+    elif mode == 'val':
+        prompt_path = opt['hq_val_prompt_path']
+    hq_prompts_path = sorted(glob.glob(f"{prompt_path}/*.txt"))
     # lq_prompts_path = sorted(glob.glob(f"{opt['lq_prompt_path']}/*.txt"))
 
     # load anns
@@ -71,11 +75,8 @@ def load_data_files(opt, mode):
         anns = json.load(f)
         anns = sorted(anns.items())
     
-
-    # data_files = zip(imgs_path, hq_prompts_path, lq_prompts_path, anns)
-    # for img_path, hq_prompt_path, lq_prompt_path, ann in data_files:
     data_files = zip(imgs_path, hq_prompts_path, anns)
-    for img_path, hq_prompt_path, ann in data_files:
+    for data_idx, (img_path, hq_prompt_path, ann) in enumerate(data_files):
 
         # safety check
         img_id = img_path.split('/')[-1].split('.')[0]
@@ -130,8 +131,6 @@ def load_data_files(opt, mode):
             boxes.append(processed_box)
 
 
-
-
             # process polygons
             poly = np.array(img_ann['polygon']).astype(np.int32)    # 16 2
             # scale poly
@@ -166,7 +165,7 @@ def load_data_files(opt, mode):
                         'text_enc': text_encs, 
                         "img_id": img_id})     
 
-
+    
     if mode=='val':
         files = random.sample(files, opt['val_num_img'])
 

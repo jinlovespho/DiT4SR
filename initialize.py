@@ -99,18 +99,30 @@ def load_experiment_setting(cfg, logger):
                 while len(weights) > 0:
                     weights.pop()
                     model = models[i]
-                    sub_dir = "transformer"
-                    model.save_pretrained(os.path.join(output_dir, sub_dir))
+                    if hasattr(model, "save_pretrained"):  # Hugging Face
+                        model.save_pretrained(os.path.join(output_dir, "transformer"))
+                    else:  # Bit of a hacky solution to save non-Hugging Face models - e.g., text spotting module
+                        ckpt_dict={}
+                        unwrapped_model = accelerator.unwrap_model(model)
+                        ckpt_dict['ts_module'] = unwrapped_model.state_dict()
+                        ckpt_path = f"{output_dir}/ts_module.pt"
+                        torch.save(ckpt_dict, ckpt_path)
                     i -= 1
         def load_model_hook(models, input_dir):
-            # while len(models) > 0:
+            while len(models) > 0:
                 # pop models so that they are not loaded again
-            model = models.pop()
-            load_model = SD3Transformer2DModel.from_pretrained(input_dir, subfolder="transformer") # , low_cpu_mem_usage=False, ignore_mismatched_sizes=True
-            # load diffusers style into model
-            model.register_to_config(**load_model.config)
-            model.load_state_dict(load_model.state_dict())
-            del load_model
+                model = models.pop()
+                if hasattr(model, "register_to_config"):
+                    load_model = SD3Transformer2DModel.from_pretrained(input_dir, subfolder="transformer") # , low_cpu_mem_usage=False, ignore_mismatched_sizes=True
+                    # load diffusers style into model
+                    model.register_to_config(**load_model.config)
+                    model.load_state_dict(load_model.state_dict())
+                    del load_model
+                else:
+                    ts_ckpt = torch.load(f'{input_dir}/ts_module.pt', map_location="cpu")
+                    load_result = model.load_state_dict(ts_ckpt['ts_module'], strict=False)
+                    print('- TS MODULE load result: ', load_result)
+                    breakpoint()
         accelerator.register_save_state_pre_hook(save_model_hook)
         accelerator.register_load_state_pre_hook(load_model_hook)
     return accelerator
@@ -126,11 +138,11 @@ def load_data(cfg):
         collate_fn = collate_fn_real
 
         train_ds = PhoRealESRGANDataset(cfg.data, mode='train')
-        # val_ds = PhoRealESRGANDataset(cfg, mode='val')
+        val_ds = PhoRealESRGANDataset(cfg.data, mode='val')
     
     train_loader = torch.utils.data.DataLoader(train_ds, shuffle=True, batch_size=cfg.train.batch_size, num_workers=cfg.train.num_workers, collate_fn=collate_fn)
-    # val_loader = torch.utils.data.DataLoader(val_ds, shuffle=False, batch_size=args.val_batch_size, num_workers=args.num_workers, collate_fn=collate_fn)
-    val_loader=None
+    val_loader = torch.utils.data.DataLoader(val_ds, shuffle=False, batch_size=cfg.val.batch_size, num_workers=cfg.val.num_workers, collate_fn=collate_fn)
+    # val_loader = None
 
     return train_loader, val_loader
 
@@ -151,6 +163,7 @@ def load_model(cfg, accelerator):
     # load scheduler 
     noise_scheduler = FlowMatchEulerDiscreteScheduler.from_pretrained(cfg.ckpt.init_path.noise_scheduler, subfolder="scheduler")
     noise_scheduler_copy = copy.deepcopy(noise_scheduler)
+    models['noise_scheduler'] = noise_scheduler
     models['noise_scheduler_copy'] = noise_scheduler_copy
 
     # load transformer 
@@ -216,8 +229,8 @@ def load_model(cfg, accelerator):
         load_result = detector.load_state_dict(ckpt['model'], strict=False)
         
         if accelerator.is_main_process:
-            print("Loaded TESTR checkpoint keys:")
-            print(" - Missing keys:", load_result.missing_keys)
+            print("Loaded Initial TESTR checkpoint keys:")
+            print(" - Initial Missing keys:", load_result.missing_keys)
 
         models['testr'] = detector.train()
 
@@ -354,32 +367,59 @@ def load_trackers(cfg, accelerator):
 
 
 
+# def set_model_device(cfg, accelerator, models):
+
+#     # For mixed precision training we cast the text_encoder and vae weights to half-precision
+#     # as these models are only used for inference, keeping weights in full precision is not required.
+#     weight_dtype = torch.float32
+#     if accelerator.mixed_precision == "fp16":
+#         weight_dtype = torch.float16
+#     elif accelerator.mixed_precision == "bf16":
+#         weight_dtype = torch.bfloat16
+
+#     # place models on cuda 
+#     for name, model in models.items():
+#         if isinstance(model, torch.nn.Module):
+#             model = model.to(accelerator.device, dtype=weight_dtype)
+#         elif isinstance(model, list):
+#             if name == 'text_encoders':
+#                 for mod in model:
+#                     mod = mod.to(accelerator.device, dtype=torch.float16)
+#         else:
+#             # leave schedulers, tokenizers, etc. as they are
+#             pass
+
+#     # Make sure the trainable params are in float32.
+#     if cfg.train.mixed_precision == "fp16":
+#         tmp_models = [models['transformer']]
+#         # only upcast trainable parameters (LoRA) into fp32
+#         cast_training_params(tmp_models, dtype=torch.float32)
+    
+#     return weight_dtype
+
+
 def set_model_device(cfg, accelerator, models):
 
-    # For mixed precision training we cast the text_encoder and vae weights to half-precision
-    # as these models are only used for inference, keeping weights in full precision is not required.
+    # Choose dtype for inference-only models
     weight_dtype = torch.float32
     if accelerator.mixed_precision == "fp16":
         weight_dtype = torch.float16
     elif accelerator.mixed_precision == "bf16":
         weight_dtype = torch.bfloat16
 
-    # place models on cuda 
+    # Move models to device
     for name, model in models.items():
         if isinstance(model, torch.nn.Module):
-            model = model.to(accelerator.device, dtype=weight_dtype)
-        elif isinstance(model, list):
-            if name == 'text_encoders':
-                for mod in model:
-                    mod = mod.to(accelerator.device, dtype=torch.float16)
+            models[name] = model.to(accelerator.device, dtype=weight_dtype)
+        elif isinstance(model, list) and name == 'text_encoders':
+            models[name] = [mod.to(accelerator.device, dtype=weight_dtype) for mod in model]
         else:
             # leave schedulers, tokenizers, etc. as they are
             pass
 
-    # Make sure the trainable params are in float32.
+    # Ensure trainable params are in fp32 (LoRA or finetuning)
     if cfg.train.mixed_precision == "fp16":
-        tmp_models = [models['transformer']]
-        # only upcast trainable parameters (LoRA) into fp32
-        cast_training_params(tmp_models, dtype=torch.float32)
-    
+        fp32_models = [models['transformer'], models['testr']]
+        cast_training_params(fp32_models, dtype=torch.float32)
+
     return weight_dtype

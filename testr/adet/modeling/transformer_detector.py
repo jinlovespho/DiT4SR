@@ -84,7 +84,7 @@ class TransformerDetector(nn.Module):
         return images
 
 
-    def forward(self, extracted_feats, targets, MODE='TRAIN'):
+    def forward(self, extracted_feats, targets, MODE='VAL'):
         # breakpoint()
         output = self.testr(extracted_feats)
         bs = output['pred_logits'].shape[0]
@@ -99,7 +99,6 @@ class TransformerDetector(nn.Module):
         elif MODE == 'VAL':
             loss_dict=None
         
-        # breakpoint()
         ctrl_point_cls = output["pred_logits"]          # b k 16 1
         ctrl_point_coord = output["pred_ctrl_points"]   # b k 16 2 
         text_pred = output["pred_texts"]                # b k 25 97

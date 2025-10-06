@@ -9,7 +9,9 @@ data:
   satext:  
     data_path: /media/dataset2/text_restoration/100K
     hq_prompt_path: /media/dataset2/text_restoration/100K/dit4sr/data/train/llava13b_hq_prompt
+    hq_val_prompt_path: /media/dataset2/text_restoration/100K/dit4sr/data/val/llava13b_hq_prompt
     null_text_ratio: 0.0
+    val_num_img: 20
 
   val:
     data_name: satext
@@ -26,7 +28,8 @@ model:
   dit:
     name: dit4sr
     resolution: 512
-    load_precomputed_caption: true
+    load_precomputed_caption: True
+    use_gtprompt: True
 
   ts_module:
     name: testr 
@@ -44,15 +47,14 @@ ckpt:
     dit: latest
 
 
-
 train:
   finetune_model: dit4sr_testr 
   finetune_method: dit4sr_lr_branch
-  batch_size: 2
+  batch_size: 3
   num_workers: 4
   num_train_epochs: 300
   max_train_steps: 
-  mixed_precision: "no"
+  mixed_precision: "fp16"
   lr_scheduler: "constant"
   lr_warmup_steps: 500
   lr_num_cycles: 1
@@ -64,27 +66,33 @@ train:
   scale_lr: False
   use_8bit_adam: False
   learning_rate:
-    dit: 5e-6
+    dit: 1e-5
     ts_module: 1e-4
+  # ocr_loss_weight: 0.01
+  ocr_loss_weight: 0.1
 
 
 val:
-  batch_size: 2
-  val_every_step: 2000
+  batch_size: 1
+  num_workers: 4
+  val_every_step: 500
+  log_train_ocr_result_every: -1
+
 
 
 save:
-  output_dir: ./result_train/dit4sr_testr_llava13b
-  checkpointing_steps: 5000
-  checkpoints_total_limit:
+  # output_dir: ./result_train/dit4sr_testr_llava13b
+  # output_dir: ./result_train/serv12gpu0_fp16_satext_dit4sr_lr1e5_testr_lr1e4_bs3_gradaccum4_gtprompt_ocrloss001
+  output_dir: ./result_train/serv12gpu1_fp16_satext_dit4sr_lr1e5_testr_lr1e4_bs3_gradaccum4_gtprompt_ocrloss01
+  checkpointing_steps: 2500
 
 
 log:
   tracker: 
     report_to: wandb 
     key: e32eed0c2509bf898b850b0065ab62345005fb73
-    # project_name: cvpr26_tair_extension
-    project_name: iclr26_tair_vlm
-    # run_name: TRAIN_STAGE2_server12_gpu0_satext_dit4sr_lr5e-6_testr_lr1e-4_bs2_gradaccum4_llava13bprompt_onlyts_test
-    run_name: TRAIN_serv12gpu1_satext_dit4sr_lr5e-6_testr_lr1e-4_bs2_gradaccum4_llava13b_ocrlossweight0.01
+    project_name: cvpr26_tair_extension
+    # project_name: iclr26_tair_vlm
+    # run_name: TRAIN_serv12gpu0_fp16_satext_dit4sr_lr1e-5_testr_lr1e-4_bs3_gradaccum4_gtprompt_ocrloss0.01
+    run_name: TRAIN_serv12gpu1_fp16_satext_dit4sr_lr1e-5_testr_lr1e-4_bs3_gradaccum4_gtprompt_ocrloss0.1
   log_dir: logs

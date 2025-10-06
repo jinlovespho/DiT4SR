@@ -467,6 +467,7 @@ def main(args):
             for sample_idx in range(args.sample_times):
                 os.makedirs(f'{args.output_dir}/sample{str(sample_idx).zfill(2)}/', exist_ok=True)
 
+            breakpoint()
             for sample_idx in range(args.sample_times):  
                 with torch.autocast("cuda"):
                     start_time = time.time()
@@ -510,7 +511,7 @@ if __name__ == "__main__":
     parser.add_argument("--image_path", type=str, default=None)
     parser.add_argument("--output_dir", type=str, default='results')
     parser.add_argument("--mixed_precision", type=str, default="fp16") # no/fp16/bf16
-    parser.add_argument("--guidance_scale", type=float, default=8.0)
+    parser.add_argument("--guidance_scale", type=float, default=1.0)
     parser.add_argument("--num_inference_steps", type=int, default=40)
     parser.add_argument("--process_size", type=int, default=512)
     parser.add_argument("--vae_decoder_tiled_size", type=int, default=224) # latent size, for 24G
