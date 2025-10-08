@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+import os 
 import inspect
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
@@ -196,12 +196,15 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
         text_encoder_3: T5EncoderModel,
         tokenizer_3: T5TokenizerFast,
         tokenizer_2: CLIPTokenizer,
-        ts_module = None
+        ts_module = None,
+        cfg = None
     ):
         super().__init__()
 
         if ts_module is not None:
             self.ts_module = ts_module
+        
+        self.cfg = cfg 
 
         self.register_modules(
             vae=vae,
@@ -790,7 +793,8 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
         start_point = 'noise',
         latent_tiled_size=320,
         latent_tiled_overlap=4,
-        args=None
+        args=None,
+        **kwargs
     ):
         r"""
         Function invoked when calling the pipeline for generation.
@@ -1032,6 +1036,17 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
             else:
                 print(f"[Tiled Latent]: the input size is {latents.shape[-2]}x{latents.shape[-1]}, need to tiled")
 
+
+            # save prompt
+            if self.cfg.data.val.save_prompts:
+                txt_save_path = f"{self.cfg.save.output_dir}/{self.cfg.log.tracker.run_name}/final_pred_txt"
+                os.makedirs(txt_save_path, exist_ok=True)
+                txt_file = f"{txt_save_path}/{kwargs['lq_id']}.txt"
+                with open(txt_file, "w") as f:
+                    f.write(f"{kwargs['lq_id']}\n")
+                    f.write(f'[init prompt]: {prompt}\n\n')
+
+
             val_ocr_result=[]
             for i, t in enumerate(timesteps):
                 if self.interrupt:
@@ -1099,6 +1114,11 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
                             pred_polys.append(val_ctrl_pnt)
                             ts_pred_text.append(val_pred_text)
                         pred_prompt = [f"{', '.join(ts_pred_text)}"]
+                        print(f"iter: {i:02d} | timestep: {t.item():8.2f} | text prompt: {pred_prompt}")
+
+                        if self.cfg.data.val.save_prompts:
+                            with open(txt_file, "a") as f:
+                                f.write(f"iter: {i:02d}   |   timestep: {t.item():8.2f}   |   text prompt: {pred_prompt}\n")
 
                         # ts module inference prompt 
                         (
@@ -1123,6 +1143,8 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
                             num_images_per_prompt=num_images_per_prompt,
                             max_sequence_length=max_sequence_length,
                         )
+
+                        
 
 
                 else:

@@ -28,6 +28,13 @@ import time
 
 from qwen_vl_utils import process_vision_info
 
+from omegaconf import OmegaConf
+from torchvision.utils import save_image 
+
+import pyiqa
+import cv2 
+import wandb
+
 
 logger = get_logger(__name__, log_level="INFO")
 
@@ -122,67 +129,103 @@ def import_model_class_from_model_name_or_path(
         raise ValueError(f"{model_class} is not supported.")
 
 # Copied from dreambooth sd3 example
-def load_text_encoders(class_one, class_two, class_three, args):
+def load_text_encoders(class_one, class_two, class_three, cfg):
     text_encoder_one = class_one.from_pretrained(
-        args.pretrained_model_name_or_path, subfolder="text_encoder", revision=args.revision, variant=args.variant
+        cfg.ckpt.init_path.text_encoder, subfolder="text_encoder", revision=None, variant=None
     )
     text_encoder_two = class_two.from_pretrained(
-        args.pretrained_model_name_or_path, subfolder="text_encoder_2", revision=args.revision, variant=args.variant
+        cfg.ckpt.init_path.text_encoder, subfolder="text_encoder_2", revision=None, variant=None
     )
     text_encoder_three = class_three.from_pretrained(
-        args.pretrained_model_name_or_path, subfolder="text_encoder_3", revision=args.revision, variant=args.variant
+        cfg.ckpt.init_path.text_encoder, subfolder="text_encoder_3", revision=None, variant=None
     )
     return text_encoder_one, text_encoder_two, text_encoder_three
 
 
-def load_dit4sr_pipeline(args, accelerator):
+def load_dit4sr_pipeline(cfg, accelerator):
     
     from model_dit4sr.transformer_sd3 import SD3Transformer2DModel
  
     # Load scheduler, tokenizer and models.
     
     scheduler = FlowMatchEulerDiscreteScheduler.from_pretrained(
-        args.pretrained_model_name_or_path, subfolder="scheduler"
+        cfg.ckpt.init_path.noise_scheduler, subfolder="scheduler"
     )
     vae = AutoencoderKL.from_pretrained(
-        args.pretrained_model_name_or_path,
+        cfg.ckpt.init_path.vae,
         subfolder="vae",
     )
     transformer = SD3Transformer2DModel.from_pretrained(
-        args.transformer_model_name_or_path, subfolder="transformer"
+        cfg.ckpt.init_path.dit, subfolder="transformer"
     )
     # controlnet = SD3ControlNetModel.from_pretrained(args.controlnet_model_name_or_path, subfolder='controlnet')
     # Load the tokenizer
     tokenizer_one = CLIPTokenizer.from_pretrained(
-        args.pretrained_model_name_or_path,
+        cfg.ckpt.init_path.tokenizer,
         subfolder="tokenizer",
-        revision=args.revision,
+        revision=None,
     )
     tokenizer_two = CLIPTokenizer.from_pretrained(
-        args.pretrained_model_name_or_path,
+        cfg.ckpt.init_path.tokenizer,
         subfolder="tokenizer_2",
-        revision=args.revision,
+        revision=None,
     )
     tokenizer_three = T5TokenizerFast.from_pretrained(
-        args.pretrained_model_name_or_path,
+        cfg.ckpt.init_path.tokenizer,
         subfolder="tokenizer_3",
-        revision=args.revision,
+        revision=None,
     )
 
     # import correct text encoder class
     text_encoder_cls_one = import_model_class_from_model_name_or_path(
-        args.pretrained_model_name_or_path, args.revision
+        cfg.ckpt.init_path.text_encoder, None
     )
     text_encoder_cls_two = import_model_class_from_model_name_or_path(
-        args.pretrained_model_name_or_path, args.revision, subfolder="text_encoder_2"
+        cfg.ckpt.init_path.text_encoder, None, subfolder="text_encoder_2"
     )
     text_encoder_cls_three = import_model_class_from_model_name_or_path(
-        args.pretrained_model_name_or_path, args.revision, subfolder="text_encoder_3"
+        cfg.ckpt.init_path.text_encoder, None, subfolder="text_encoder_3"
     )
 
     text_encoder_one, text_encoder_two, text_encoder_three = load_text_encoders(
-            text_encoder_cls_one, text_encoder_cls_two, text_encoder_cls_three, args
+            text_encoder_cls_one, text_encoder_cls_two, text_encoder_cls_three, cfg
         )
+
+
+    if cfg.ckpt.final_val_ckpt.dit is not None:
+        transformer = SD3Transformer2DModel.from_pretrained(
+            cfg.ckpt.final_val_ckpt.dit, subfolder="transformer"
+        )
+        print(f"Loaded Trained DiT checkpoint: {cfg.ckpt.final_val_ckpt.dit}")
+
+
+    # load ts module 
+    if cfg.train.finetune_model == 'dit4sr_testr':
+        from testr.adet.modeling.transformer_detector import TransformerDetector
+        from testr.adet.config import get_cfg
+
+        # get testr config
+        config_testr = get_cfg()
+        config_testr.merge_from_file('./testr/configs/TESTR/TESTR_R_50_Polygon.yaml')
+        config_testr.freeze()
+
+        # load testr model
+        ts_module = TransformerDetector(config_testr)
+
+        # load trained ckpt
+        if cfg.ckpt.final_val_ckpt.dit is not None:
+            ckpt_iter = int(cfg.ckpt.final_val_ckpt.dit.split('/')[-1].split('-')[-1])
+            ts_ckpt_path = f'{cfg.ckpt.final_val_ckpt.dit}/ts_module{ckpt_iter:07d}.pt'
+            ckpt = torch.load(ts_ckpt_path, map_location="cpu")
+            load_result = ts_module.load_state_dict(ckpt['ts_module'], strict=False)
+            print("Loaded TESTR checkpoint keys:")
+            print(" - Missing keys:", load_result.missing_keys)
+            print(" - Unexpected keys:", load_result.unexpected_keys)
+
+
+        ts_module.requires_grad_(False)
+        ts_module.eval()
+
 
     # Freeze vae and text_encoder
     vae.requires_grad_(False)
@@ -195,7 +238,7 @@ def load_dit4sr_pipeline(args, accelerator):
     validation_pipeline = StableDiffusion3ControlNetPipeline(
         vae=vae, text_encoder=text_encoder_one, text_encoder_2=text_encoder_two, text_encoder_3=text_encoder_three, 
         tokenizer=tokenizer_one, tokenizer_2=tokenizer_two, tokenizer_3=tokenizer_three, 
-        transformer=transformer, scheduler=scheduler,
+        transformer=transformer, scheduler=scheduler, ts_module = ts_module, cfg=cfg
     )
 
     # For mixed precision training we cast the text_encoder and vae weights to half-precision
@@ -263,65 +306,78 @@ def process_qwen(model, processor, input_image_path):
     return clean_text
 
 
-def process_saved_qwen(saved_caption_path, captioner_size, img_id):
+def process_saved_qwen(saved_caption_path, captioner_size, lq_id):
     caption_json_path = f'{saved_caption_path}/{captioner_size}b.json'
     with open(caption_json_path, 'r', encoding='utf-8') as file:
         anns = json.load(file)
-    ann = anns[img_id]
+    ann = anns[lq_id]
     gt_text = ann['gt_text']
     vlm_output_text = ann['vlm_output']
     return gt_text, vlm_output_text
 
 
-def main(args):
-    txt_path = os.path.join(args.output_dir, 'txt')
-    os.makedirs(txt_path, exist_ok=True)
+def main(cfg):
+    # txt_path = os.path.join(cfg.save.output_dir, 'txt')
+    # os.makedirs(txt_path, exist_ok=True)
 
     accelerator = Accelerator(
-        mixed_precision=args.mixed_precision,
+        mixed_precision=cfg.train.mixed_precision,
     )
 
     # If passed along, set the training seed now.
-    if args.seed is not None:
-        set_seed(args.seed)
+    if cfg.init.seed is not None:
+        set_seed(cfg.init.seed)
 
     # Handle the output folder creation
     if accelerator.is_main_process:
-        os.makedirs(args.output_dir, exist_ok=True)
+        os.makedirs(cfg.save.output_dir, exist_ok=True)
 
     # We need to initialize the trackers we use, and also store our configuration.
     # The trackers initializes automatically on the main process.
     if accelerator.is_main_process:
-        accelerator.init_trackers("dit4sr")
+        wandb.login(key=cfg.log.tracker.key)
+        wandb.init(
+            project=cfg.log.tracker.project_name,
+            name=cfg.log.tracker.run_name,
+            config=OmegaConf.to_container(cfg, resolve=True)
+        )
+        # accelerator.init_trackers(
+        #     project_name=cfg.log.tracker.project_name,
+        #     config=argparse.Namespace(**OmegaConf.to_container(cfg, resolve=True)),
+        #     init_kwargs={
+        #             'wandb':{
+        #                 'name': cfg.log.tracker.run_name,}
+        #         }
+        # )
 
-    pipeline = load_dit4sr_pipeline(args, accelerator)
+    pipeline = load_dit4sr_pipeline(cfg, accelerator)
 
 
-    if args.use_precomputed_prompts is not None:
-        precom_prompts = sorted(glob.glob(f"{args.use_precomputed_prompts}/*.txt"))
+    if cfg.data.val.use_precomputed_prompts is not None:
+        precom_prompts = sorted(glob.glob(f"{cfg.data.val.use_precomputed_prompts}/*.txt"))
     else:
         # load vlm
-        if args.captioner =='llava' and args.saved_caption_path is None:
+        if cfg.data.val.captioner =='llava' and cfg.data.val.saved_caption_path is None:
             from llava.llm_agent import LLavaAgent
             from CKPT_PTH import LLAVA_MODEL_PATH
             cap_agent = LLavaAgent(LLAVA_MODEL_PATH, LLaVA_device, load_8bit=True, load_4bit=False)
-        elif args.captioner == 'qwen' and args.saved_caption_path is None:
+        elif cfg.data.val.captioner == 'qwen' and cfg.data.val.saved_caption_path is None:
             from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
-            model_size=args.captioner_size
+            model_size=cfg.data.val.captioner_size
             vlm_model = Qwen2_5_VLForConditionalGeneration.from_pretrained(f"Qwen/Qwen2.5-VL-{model_size}B-Instruct", torch_dtype="auto", device_map="auto")
             vlm_processor = AutoProcessor.from_pretrained(f"Qwen/Qwen2.5-VL-{model_size}B-Instruct")
     
 
     # load SAText annotation for gt prompting 
-    if args.satext_ann_path is not None:
+    if cfg.data.val.name in ['satext', 'realtext']:
         model_H, model_W = 512, 512 
         # load json 
-        json_path = args.satext_ann_path
+        json_path = cfg.data.val.ann_path
         with open(json_path, 'r') as f:
             json_data = json.load(f)
             json_data = sorted(json_data.items())
         val_gt_json = {}
-        for idx, (img_id, img_anns) in enumerate(json_data):
+        for idx, (lq_id, img_anns) in enumerate(json_data):
             anns = img_anns['0']['text_instances']
             boxes=[]
             texts=[]
@@ -380,10 +436,10 @@ def main(args):
             # elif cfg.prompter_args.prompt_style == 'TAG':
             #     prompt = f"{', '.join(caption)}"
             # if cfg.prompter_args.use_llava_prompt:
-            #     prompt = llava_dic[img_id]
+            #     prompt = llava_dic[lq_id]
             prompt = f"A realistic scene where the texts {', '.join(caption) } appear clearly on signs, boards, buildings, or other objects."
             prompts.append(prompt)
-            val_gt_json[img_id] = {
+            val_gt_json[lq_id] = {
                 'boxes': boxes,
                 'texts': texts,
                 'text_encs': text_encs,
@@ -394,161 +450,344 @@ def main(args):
 
     if accelerator.is_main_process:
         generator = torch.Generator(device=accelerator.device)
-        if args.seed is not None:
-            generator.manual_seed(args.seed)
+        if cfg.init.seed is not None:
+            generator.manual_seed(cfg.init.seed)
 
-        if os.path.isdir(args.image_path):
-            image_names = sorted(glob.glob(f'{args.image_path}/*.*'))
-        else:
-            image_names = [args.image_path]
-        image_names = sorted(image_names)
-        print(f'Number of testing images: {len(image_names)}')
+        if os.path.isdir(cfg.data.val.lq_image_path):
+            lq_imgs = sorted(glob.glob(f'{cfg.data.val.lq_image_path}/*.jpg'))
+        gt_exist=False
+        if os.path.isdir(cfg.data.val.gt_image_path):
+            gt_exist=True
+            gt_imgs = sorted(glob.glob(f'{cfg.data.val.gt_image_path}/*.jpg'))
+            assert len(lq_imgs) == len(gt_imgs)
+        print(f'Number of LQ testing images: {len(lq_imgs)}')
 
-        for image_idx, image_name in enumerate(image_names[:]):
-            
+
+        # SR metrics
+        metric_psnr = pyiqa.create_metric('psnr', device=accelerator.device)
+        metric_ssim = pyiqa.create_metric('ssimc', device=accelerator.device)
+        metric_lpips = pyiqa.create_metric('lpips', device=accelerator.device)
+        metric_dists = pyiqa.create_metric('dists', device=accelerator.device)
+        # metric_fid = pyiqa.create_metric('fid', device=device)
+        metric_niqe = pyiqa.create_metric('niqe', device=accelerator.device)
+        metric_musiq = pyiqa.create_metric('musiq', device=accelerator.device)
+        metric_maniqa = pyiqa.create_metric('maniqa', device=accelerator.device)
+        metric_clipiqa = pyiqa.create_metric('clipiqa', device=accelerator.device)
+
+
+        tot_val_psnr=[]
+        tot_val_ssim=[]
+        tot_val_lpips=[]
+        tot_val_dists=[]
+        tot_val_niqe=[]
+        tot_val_musiq=[]
+        tot_val_maniqa=[]
+        tot_val_clipiqa=[]
+
+
+        for image_idx in range(len(lq_imgs)):
+
             # img id 
-            img_id = image_name.split('/')[-1].split('.')[0]
-            img_ann = val_gt_json[img_id]
+            lq_name = lq_imgs[image_idx]
+            lq_id = lq_name.split('/')[-1].split('.')[0]
+            img_ann = val_gt_json[lq_id]
             gt_prompt = img_ann['gtprompts'][0]
-            print(f'================== processing {image_idx} img: {img_id} ===================')
+
+
+            val_text = img_ann['texts']
+            val_polys = img_ann['polys']
+
+
+
+            if gt_exist:
+                gt_name = gt_imgs[image_idx]
+                gt_id = gt_name.split('/')[-1].split('.')[0]
+                assert lq_id == gt_id 
+                gt_image = Image.open(gt_name).convert("RGB")
+
+
+
+            print(f'================== processing {image_idx} img: {lq_id} ===================')
 
             # read img
-            validation_image = Image.open(image_name).convert("RGB")
+            lq_image = Image.open(lq_name).convert("RGB")
 
 
-            if args.use_precomputed_prompts is not None:
+            if cfg.data.val.use_precomputed_prompts is not None:
                 precom_prompt = precom_prompts[image_idx]
                 prompt_id = precom_prompt.split('/')[-1].split('.')[0]
-                assert img_id == prompt_id
+                assert lq_id == prompt_id
                 with open(f'{precom_prompt}', 'r') as f:
                     validation_prompt = f.read().strip()
             else:
                 # process prompt 
-                if args.captioner == 'llava':
-                    validation_prompt = process_llava(cap_agent, validation_image)
-                elif args.captioner == 'qwen':
-                    if args.saved_caption_path is not None:
-                        gt_text, validation_prompt = process_saved_qwen(args.saved_caption_path, args.captioner_size, img_id)
+                if cfg.data.val.captioner == 'llava':
+                    validation_prompt = process_llava(cap_agent, lq_image)
+                elif cfg.data.val.captioner == 'qwen':
+                    if cfg.data.val.saved_caption_path is not None:
+                        gt_text, validation_prompt = process_saved_qwen(cfg.data.val.saved_caption_path, cfg.data.val.captioner_size, lq_id)
                     else:
-                        validation_prompt = process_qwen(vlm_model, vlm_processor, image_name)
-                if args.use_satext_gt_prompt:
-                    print('Using SAText GT prompt ...')
-                    validation_prompt = gt_prompt
-                validation_prompt += ' ' + args.added_prompt # clean, extremely detailed, best quality, sharp, clean
-                if args.use_null_prompt:
-                    validation_prompt = ''
-            negative_prompt = args.negative_prompt #dirty, messy, low quality, frames, deformed, 
+                        validation_prompt = process_qwen(vlm_model, vlm_processor, lq_name)
+            if cfg.data.val.use_satext_gtprompt:
+                print('Using SAText GT prompt ...')
+                validation_prompt = gt_prompt
+            validation_prompt += ' ' + cfg.data.val.added_prompt # clean, extremely detailed, best quality, sharp, clean
+            if cfg.data.val.use_nullprompt:
+                validation_prompt = '' + cfg.data.val.added_prompt
+            negative_prompt = cfg.data.val.negative_prompt #dirty, messy, low quality, frames, deformed, 
 
-            # save prompt
-            if args.save_prompts:
-                txt_save_path = f"{txt_path}/{os.path.basename(image_name).split('.')[0]}.txt"
-                file = open(txt_save_path, "w")
-                file.write(validation_prompt)
-                file.close()
-            print(f'{validation_prompt}')
+            # # save prompt
+            # if cfg.data.val.save_prompts:
+            #     txt_save_path = f"{cfg.save.output_dir}/{cfg.log.tracker.run_name}/txt"
+            #     os.makedirs(txt_save_path, exist_ok=True)
+            #     file = open(f'{txt_save_path}/{lq_id}.txt', "w")
+            #     file.write(validation_prompt)
+            #     file.close()
+            # print(f'{validation_prompt}')
 
-            ori_width, ori_height = validation_image.size
+            ori_width, ori_height = lq_image.size
             resize_flag = False
-            rscale = args.upscale
-            if ori_width < args.process_size//rscale or ori_height < args.process_size//rscale: # f
-                scale = (args.process_size//rscale)/min(ori_width, ori_height)
-                tmp_image = validation_image.resize((int(scale*ori_width), int(scale*ori_height)),Image.BICUBIC)
+            rscale = cfg.data.val.upscale
+            if ori_width < cfg.data.val.process_size//rscale or ori_height < cfg.data.val.process_size//rscale: # f
+                scale = (cfg.data.val.process_size//rscale)/min(ori_width, ori_height)
+                tmp_image = lq_image.resize((int(scale*ori_width), int(scale*ori_height)),Image.BICUBIC)
 
-                validation_image = tmp_image
+                lq_image = tmp_image
                 resize_flag = True
 
-            validation_image = validation_image.resize((validation_image.size[0]*rscale, validation_image.size[1]*rscale), Image.BICUBIC)
-            validation_image = validation_image.resize((validation_image.size[0]//8*8, validation_image.size[1]//8*8), Image.BICUBIC)
-            width, height = validation_image.size
+            lq_image = lq_image.resize((lq_image.size[0]*rscale, lq_image.size[1]*rscale), Image.BICUBIC)
+            lq_image = lq_image.resize((lq_image.size[0]//8*8, lq_image.size[1]//8*8), Image.BICUBIC)
+            width, height = lq_image.size
             resize_flag = True #
 
             print(f'input size: {height}x{width}')
 
-            for sample_idx in range(args.sample_times):
-                os.makedirs(f'{args.output_dir}/sample{str(sample_idx).zfill(2)}/', exist_ok=True)
+            # for sample_idx in range(cfg.data.val.sample_times):
+            #     os.makedirs(f'{cfg.save.output_dir}/sample{str(sample_idx).zfill(2)}/', exist_ok=True)
 
-            breakpoint()
-            for sample_idx in range(args.sample_times):  
+            for sample_idx in range(cfg.data.val.sample_times):  
                 with torch.autocast("cuda"):
                     start_time = time.time()
-                    image = pipeline(
-                            prompt=validation_prompt, control_image=validation_image, num_inference_steps=args.num_inference_steps, generator=generator, height=height, width=width,
-                            guidance_scale=args.guidance_scale, negative_prompt=negative_prompt,
-                            start_point=args.start_point, latent_tiled_size=args.latent_tiled_size, latent_tiled_overlap=args.latent_tiled_overlap,
-                            args=args,
-                        ).images[0]
+                    val_out = pipeline(
+                            prompt=validation_prompt, control_image=lq_image, num_inference_steps=cfg.data.val.num_inference_steps, generator=generator, height=height, width=width,
+                            guidance_scale=cfg.data.val.guidance_scale, negative_prompt=negative_prompt,
+                            start_point=cfg.data.val.start_point, latent_tiled_size=cfg.data.val.latent_tiled_size, latent_tiled_overlap=cfg.data.val.latent_tiled_overlap,
+                            output_type = 'pt', return_dict=False, lq_id=lq_id
+                        )
+                    val_restored_img = val_out[0]
+                    val_ocr_result = val_out[1]
                     end_time = time.time()
                     print(f'inference time: {end_time-start_time:.2f}s')
                 
-                if args.align_method == 'nofix':
-                    image = image
-                else:
-                    if args.align_method == 'wavelet':
-                        image = wavelet_color_fix(image, validation_image)
-                    elif args.align_method == 'adain':
-                        image = adain_color_fix(image, validation_image)
-
-                if resize_flag: 
-                    image = image.resize((ori_width*rscale, ori_height*rscale), Image.BICUBIC)
-                    
-                name, ext = os.path.splitext(os.path.basename(image_name))
+                # Save only the restored image
+                res_save_path = f'{cfg.save.output_dir}/{cfg.log.tracker.run_name}/final_restored_img'
+                os.makedirs(res_save_path, exist_ok=True)
+                save_image(val_restored_img, f'{res_save_path}/{lq_id}.png')
                 
-                image.save(f'{args.output_dir}/sample{str(sample_idx).zfill(2)}/{name}.png')
-                # image.save(f'{args.output_dir}/sample{str(sample_idx).zfill(2)}_{name}.png')
+
+                # Save restored images for visualization
+                val_save_path = f'{cfg.save.output_dir}/{cfg.log.tracker.run_name}/vis_restored'
+                os.makedirs(val_save_path, exist_ok=True)
+
+
+                # lq 
+                val_lq_img = transforms.ToTensor()((lq_image)).unsqueeze(dim=0).cuda()  # [0,1]
+                # val_lq_img = (val_lq_img + 1.0) / 2.0
+                # gt 
+                val_gt_img = transforms.ToTensor()((gt_image)).unsqueeze(dim=0).cuda()  # [0,1]
+                # val_gt_img = (val_gt_img + 1.0) / 2.0
+                # restored
+                val_img = torch.concat([val_lq_img, val_restored_img, val_gt_img], dim=3)
+                # save_image(val_img, f'{val_save_path}/step{global_step}_valimg{val_step}_{val_lq_id[val_idx]}.png')
+                save_image(val_img, f'{val_save_path}/restored_{lq_id}.png')
+                # save_image(val_lq_img, f'{val_save_path}/step{global_step}_{val_lq_id[val_idx]}.png', normalize=True)
+                # save_image(val_res_img, f'{val_save_path}/step{global_step}_{val_lq_id[val_idx]}.png', normalize=True)
+                
+                # log total psnr, ssim, lpips for val
+                tot_val_psnr.append(torch.mean(metric_psnr(val_restored_img.to(torch.float32), val_gt_img.to(torch.float32))).item())
+                tot_val_ssim.append(torch.mean(metric_ssim(val_restored_img.to(torch.float32), val_gt_img.to(torch.float32))).item())
+                tot_val_lpips.append(torch.mean(metric_lpips(val_restored_img.to(torch.float32), val_gt_img.to(torch.float32))).item())
+                tot_val_dists.append(torch.mean(metric_dists(val_restored_img.to(torch.float32), val_gt_img.to(torch.float32))).item())
+                tot_val_niqe.append(torch.mean(metric_niqe(val_restored_img.to(torch.float32), val_gt_img.to(torch.float32))).item())
+                tot_val_musiq.append(torch.mean(metric_musiq(val_restored_img.to(torch.float32), val_gt_img.to(torch.float32))).item())
+                tot_val_maniqa.append(torch.mean(metric_maniqa(val_restored_img.to(torch.float32), val_gt_img.to(torch.float32))).item())
+                tot_val_clipiqa.append(torch.mean(metric_clipiqa(val_restored_img.to(torch.float32), val_gt_img.to(torch.float32))).item())
+
+                # log sampling val imgs to wandb
+                if accelerator.is_main_process and cfg.log.tracker.report_to == 'wandb':
+                    wandb.log({f'val_metric/val_psnr': torch.mean(metric_psnr(
+                                                                                    val_restored_img.to(torch.float32), 
+                                                                                    val_gt_img.to(torch.float32))).item(),
+                            f'val_metric/val_ssim': torch.mean(metric_ssim(
+                                                                                    val_restored_img.to(torch.float32), 
+                                                                                    val_gt_img.to(torch.float32))).item(),
+                            f'val_metric/val_lpips': torch.mean(metric_lpips(
+                                                                                    val_restored_img.to(torch.float32), 
+                                                                                    val_gt_img.to(torch.float32))).item(),
+                            f'val_metric/val_dists': torch.mean(metric_dists(
+                                                                                    val_restored_img.to(torch.float32), 
+                                                                                    val_gt_img.to(torch.float32))).item(),
+                            f'val_metric/val_niqe': torch.mean(metric_niqe(
+                                                                                    val_restored_img.to(torch.float32), 
+                                                                                    val_gt_img.to(torch.float32))).item(),
+                            f'val_metric/val_musiq': torch.mean(metric_musiq(
+                                                                                    val_restored_img.to(torch.float32), 
+                                                                                    val_gt_img.to(torch.float32))).item(),
+                            f'val_metric/val_maniqa': torch.mean(metric_maniqa(
+                                                                                    val_restored_img.to(torch.float32), 
+                                                                                    val_gt_img.to(torch.float32))).item(),
+                            f'val_metric/val_clipiqa': torch.mean(metric_clipiqa(
+                                                                                    val_restored_img.to(torch.float32), 
+                                                                                    val_gt_img.to(torch.float32))).item(),
+                            })
+
+
+                ## -------------------- vis val ocr results -------------------- 
+                print('== logging val ocr results ===')
+                val_ocr_save_path = f'{cfg.save.output_dir}/{cfg.log.tracker.run_name}/vis_ocr_result'
+                os.makedirs(val_ocr_save_path, exist_ok=True)
+
+                img_lq = val_lq_img.detach().permute(0,2,3,1).cpu().numpy() # b h w c
+                img_gt = val_gt_img.detach().permute(0,2,3,1).cpu().numpy()
+
+                for vis_batch_idx in range(len(img_gt)):
+                    vis_lq = img_lq[vis_batch_idx] # h w c 
+                    # vis_lq = (vis_lq + 1.0)/2.0 * 255.0
+                    vis_lq = vis_lq * 255.0
+                    vis_lq = vis_lq.astype(np.uint8)
+                    vis_lq = vis_lq.copy()
+
+                    vis_gt = img_gt[vis_batch_idx] # h w c
+                    # vis_gt = (vis_gt + 1.0)/2.0 * 255.0
+                    vis_gt = vis_gt * 255.0
+                    vis_gt = vis_gt.astype(np.uint8)
+                    vis_pred = vis_lq.copy()
+                    vis_gt = vis_gt.copy()
+
+                    ocr_res = val_ocr_result[vis_batch_idx]
+                    vis_polys = ocr_res.polygons.view(-1,16,2)  # b 16 2
+                    vis_recs = ocr_res.recs                     # b 25
+                    for vis_img_idx in range(len(vis_polys)):
+                        pred_poly = vis_polys[vis_img_idx]   # 16 2
+                        pred_poly = np.array(pred_poly.detach().cpu()).astype(np.int32)         
+                        pred_rec = vis_recs[vis_img_idx]     # 25
+                        pred_txt = decode(pred_rec.tolist())
+                        cv2.polylines(vis_pred, [pred_poly], isClosed=True, color=(0,255,0), thickness=2)
+                        cv2.putText(vis_pred, pred_txt, (pred_poly[0][0], pred_poly[0][1]-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1)
+                    # cv2.imwrite(f'{val_ocr_save_path}/ocr_pred_{lq_id}.jpg.jpg', vis_pred[:,:,::-1])
+
+                    if gt_exist:
+                        gt_polys = val_polys
+                        gt_texts = val_text
+                        for vis_img_idx in range(len(gt_polys)):
+                            gt_poly = gt_polys[vis_img_idx]*512.0   # 16 2
+                            gt_poly = np.array(gt_poly).astype(np.int32)
+                            gt_txt = gt_texts[vis_img_idx]
+                            cv2.polylines(vis_gt, [gt_poly], isClosed=True, color=(0,255,0), thickness=2)
+                            cv2.putText(vis_gt, gt_txt, (gt_poly[0][0], gt_poly[0][1]-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1)
+                        # cv2.imwrite(f'{val_ocr_save_path}/ocr_gt_valimg{val_step}_{val_img_id[vis_batch_idx]}.jpg', vis_gt[:,:,::-1])
+                        vis_ocr = cv2.hconcat([vis_pred, vis_gt])
+                        # cv2.imwrite(f'{val_ocr_save_path}/ocr_gt_{lq_id}.jpg', vis_gt[:,:,::-1])
+                        cv2.imwrite(f'{val_ocr_save_path}/ocr_{lq_id}.jpg', vis_ocr[:,:,::-1])
+                ## -------------------- vis val ocr results -------------------- 
+        
+        # average using numpy
+        tot_val_psnr = np.array(tot_val_psnr).mean()
+        tot_val_ssim = np.array(tot_val_ssim).mean()
+        tot_val_lpips = np.array(tot_val_lpips).mean()
+        tot_val_dists = np.array(tot_val_dists).mean()
+        tot_val_niqe = np.array(tot_val_niqe).mean()
+        tot_val_musiq = np.array(tot_val_musiq).mean()
+        tot_val_maniqa = np.array(tot_val_maniqa).mean()
+        tot_val_clipiqa = np.array(tot_val_clipiqa).mean()
+
+        # log total val metrics 
+        if accelerator.is_main_process and cfg.log.tracker.report_to == 'wandb':
+            wandb.log({
+                f'val_metric/tot_val_psnr': tot_val_psnr,
+                f'val_metric/tot_val_ssim': tot_val_ssim,
+                f'val_metric/tot_val_lpips': tot_val_lpips,
+                f'val_metric/tot_val_dists': tot_val_dists,
+                f'val_metric/tot_val_niqe': tot_val_niqe,
+                f'val_metric/tot_val_musiq': tot_val_musiq,
+                f'val_metric/tot_val_maniqa': tot_val_maniqa,
+                f'val_metric/tot_val_clipiqa': tot_val_clipiqa,
+            })
+                
+                # if cfg.data.val.align_method == 'nofix':
+                #     image = val_restored_img
+                # else:
+                #     if cfg.data.val.align_method == 'wavelet':
+                #         image = wavelet_color_fix(image, lq_image)
+                #     elif cfg.data.val.align_method == 'adain':
+                #         image = adain_color_fix(image, lq_image)
+
+                # if resize_flag: 
+                #     image = image.resize((ori_width*rscale, ori_height*rscale), Image.BICUBIC)
+                    
+                # name, ext = os.path.splitext(os.path.basename(image_name))
+                
+                # image.save(f'{cfg.save.output_dir}/sample{str(sample_idx).zfill(2)}/{name}.png')
+                # # image.save(f'{args.output_dir}/sample{str(sample_idx).zfill(2)}_{name}.png')
     
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--pretrained_model_name_or_path", type=str, default='preset/models/stable-diffusion-3.5-medium')
-    parser.add_argument("--transformer_model_name_or_path", type=str, default='dit4sr_q')
-    parser.add_argument("--prompt", type=str, default="") # user can add self-prompt to improve the results
-    parser.add_argument("--added_prompt", type=str, default='Cinematic, hyper sharpness, highly detailed, perfect without deformations, '
-                            'camera, hyper detailed photo - realistic maximum detail, 32k, Color '
-                            'Grading, ultra HD, extreme meticulous detailing, skin pore detailing. ')
-    parser.add_argument("--negative_prompt", type=str, default='motion blur, noisy, dotted, bokeh, pointed, '
-                            'CG Style, 3D render, unreal engine, blurring, dirty, messy, '
-                            'worst quality, low quality, frames, watermark, signature, jpeg artifacts, '
-                            'deformed, lowres, chaotic')
-    parser.add_argument("--image_path", type=str, default=None)
-    parser.add_argument("--output_dir", type=str, default='results')
-    parser.add_argument("--mixed_precision", type=str, default="fp16") # no/fp16/bf16
-    parser.add_argument("--guidance_scale", type=float, default=1.0)
-    parser.add_argument("--num_inference_steps", type=int, default=40)
-    parser.add_argument("--process_size", type=int, default=512)
-    parser.add_argument("--vae_decoder_tiled_size", type=int, default=224) # latent size, for 24G
-    parser.add_argument("--vae_encoder_tiled_size", type=int, default=1024) # image size, for 13G
-    parser.add_argument("--latent_tiled_size", type=int, default=64) 
-    parser.add_argument("--latent_tiled_overlap", type=int, default=24) 
-    parser.add_argument("--upscale", type=int, default=4)
-    parser.add_argument("--seed", type=int, default=None)
-    parser.add_argument("--sample_times", type=int, default=1)
-    parser.add_argument("--align_method", type=str, choices=['wavelet', 'adain', 'nofix'], default='adain')
-    parser.add_argument("--start_point", type=str, choices=['lr', 'noise'], default='noise') # LR Embedding Strategy, choose 'lr latent + 999 steps noise' as diffusion start point. 
-    parser.add_argument("--save_prompts", action='store_true')
-    parser.add_argument(
-        "--revision",
-        type=str,
-        default=None,
-        required=False,
-        help="Revision of pretrained model identifier from huggingface.co/models.",
-    )
-    parser.add_argument(
-        "--variant",
-        type=str,
-        default=None,
-        help="Variant of the model files of the pretrained model identifier from huggingface.co/models, 'e.g.' fp16",
-    )
+    # parser.add_argument("--pretrained_model_name_or_path", type=str, default='preset/models/stable-diffusion-3.5-medium')
+    # parser.add_argument("--transformer_model_name_or_path", type=str, default='dit4sr_q')
+    # parser.add_argument("--prompt", type=str, default="") # user can add self-prompt to improve the results
+    # parser.add_argument("--added_prompt", type=str, default='Cinematic, hyper sharpness, highly detailed, perfect without deformations, '
+    #                         'camera, hyper detailed photo - realistic maximum detail, 32k, Color '
+    #                         'Grading, ultra HD, extreme meticulous detailing, skin pore detailing. ')
+    # parser.add_argument("--negative_prompt", type=str, default='motion blur, noisy, dotted, bokeh, pointed, '
+    #                         'CG Style, 3D render, unreal engine, blurring, dirty, messy, '
+    #                         'worst quality, low quality, frames, watermark, signature, jpeg artifacts, '
+    #                         'deformed, lowres, chaotic')
+    # parser.add_argument("--image_path", type=str, default=None)
+    # parser.add_argument("--output_dir", type=str, default='results')
+    # parser.add_argument("--mixed_precision", type=str, default="fp16") # no/fp16/bf16
+    # parser.add_argument("--guidance_scale", type=float, default=1.0)
+    # parser.add_argument("--num_inference_steps", type=int, default=40)
+    # parser.add_argument("--process_size", type=int, default=512)
+    # parser.add_argument("--vae_decoder_tiled_size", type=int, default=224) # latent size, for 24G
+    # parser.add_argument("--vae_encoder_tiled_size", type=int, default=1024) # image size, for 13G
+    # parser.add_argument("--latent_tiled_size", type=int, default=64) 
+    # parser.add_argument("--latent_tiled_overlap", type=int, default=24) 
+    # parser.add_argument("--upscale", type=int, default=4)
+    # parser.add_argument("--seed", type=int, default=None)
+    # parser.add_argument("--sample_times", type=int, default=1)
+    # parser.add_argument("--align_method", type=str, choices=['wavelet', 'adain', 'nofix'], default='adain')
+    # parser.add_argument("--start_point", type=str, choices=['lr', 'noise'], default='noise') # LR Embedding Strategy, choose 'lr latent + 999 steps noise' as diffusion start point. 
+    # parser.add_argument("--save_prompts", action='store_true')
+    # parser.add_argument(
+    #     "--revision",
+    #     type=str,
+    #     default=None,
+    #     required=False,
+    #     help="Revision of pretrained model identifier from huggingface.co/models.",
+    # )
+    # parser.add_argument(
+    #     "--variant",
+    #     type=str,
+    #     default=None,
+    #     help="Variant of the model files of the pretrained model identifier from huggingface.co/models, 'e.g.' fp16",
+    # )
 
-    # pho
-    parser.add_argument("--satext_ann_path", type=str)
-    parser.add_argument("--use_satext_gt_prompt", action='store_true')
-    parser.add_argument("--use_null_prompt", action='store_true')
-    parser.add_argument('--captioner', type=str, default='llava')
-    parser.add_argument('--captioner_size', type=int)
-    parser.add_argument('--saved_caption_path', type=str)
-    parser.add_argument('--use_precomputed_prompts', type=str)
+    # # pho
+    # parser.add_argument("--satext_ann_path", type=str)
+    # parser.add_argument("--use_satext_gt_prompt", action='store_true')
+    # parser.add_argument("--use_null_prompt", action='store_true')
+    # parser.add_argument('--captioner', type=str, default='llava')
+    # parser.add_argument('--captioner_size', type=int)
+    # parser.add_argument('--saved_caption_path', type=str)
+    # parser.add_argument('--use_precomputed_prompts', type=str)
+
+
+    parser.add_argument("--config", type=str, required=True)
 
     args = parser.parse_args()
-    main(args)
+    cfg = OmegaConf.load(args.config)
+
+    main(cfg)
 
 
 

@@ -69,7 +69,8 @@ train:
     dit: 1e-5
     ts_module: 1e-4
   # ocr_loss_weight: 0.01
-  ocr_loss_weight: 0.1
+  # ocr_loss_weight: 0.1
+  ocr_loss_weight: 0.005
 
 
 val:
@@ -83,7 +84,8 @@ val:
 save:
   # output_dir: ./result_train/dit4sr_testr_llava13b
   # output_dir: ./result_train/serv12gpu0_fp16_satext_dit4sr_lr1e5_testr_lr1e4_bs3_gradaccum4_gtprompt_ocrloss001
-  output_dir: ./result_train/serv12gpu1_fp16_satext_dit4sr_lr1e5_testr_lr1e4_bs3_gradaccum4_gtprompt_ocrloss01
+  # output_dir: ./result_train/serv12gpu1_fp16_satext_dit4sr_lr1e5_testr_lr1e4_bs3_gradaccum4_gtprompt_ocrloss01
+  output_dir: ./result_train/serv12gpu1_fp16_satext_dit4sr_lr1e5_testr_lr1e4_bs3_gradaccum4_gtprompt_ocrloss0005
   checkpointing_steps: 2500
 
 
@@ -94,5 +96,6 @@ log:
     project_name: cvpr26_tair_extension
     # project_name: iclr26_tair_vlm
     # run_name: TRAIN_serv12gpu0_fp16_satext_dit4sr_lr1e-5_testr_lr1e-4_bs3_gradaccum4_gtprompt_ocrloss0.01
-    run_name: TRAIN_serv12gpu1_fp16_satext_dit4sr_lr1e-5_testr_lr1e-4_bs3_gradaccum4_gtprompt_ocrloss0.1
+    # run_name: TRAIN_serv12gpu1_fp16_satext_dit4sr_lr1e-5_testr_lr1e-4_bs3_gradaccum4_gtprompt_ocrloss0.1
+    run_name: TRAIN_serv12gpu1_fp16_satext_dit4sr_lr1e-5_testr_lr1e-4_bs3_gradaccum4_gtprompt_ocrloss0.005
   log_dir: logs
