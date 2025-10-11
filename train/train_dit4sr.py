@@ -479,21 +479,27 @@ def main(cfg):
                             neg_prompt = None 
                             
                             with torch.no_grad():
+                                # val_out = val_pipeline(
+                                #                     prompt=val_prompt, 
+                                #                     control_image=val_lq, 
+                                #                     num_inference_steps=num_inf_step, 
+                                #                     generator=generator, 
+                                #                     height=512, 
+                                #                     width=512,
+                                #                     guidance_scale=guidance_scale, 
+                                #                     negative_prompt=neg_prompt,
+                                #                     start_point=start_point, 
+                                #                     latent_tiled_size=64, 
+                                #                     latent_tiled_overlap=24,
+                                #                     output_type = 'pt',
+                                #                     return_dict=False, lq_id=None
+                                #                 )
                                 val_out = val_pipeline(
-                                                    prompt=val_prompt, 
-                                                    control_image=val_lq, 
-                                                    num_inference_steps=num_inf_step, 
-                                                    generator=generator, 
-                                                    height=512, 
-                                                    width=512,
-                                                    guidance_scale=guidance_scale, 
-                                                    negative_prompt=neg_prompt,
-                                                    start_point=start_point, 
-                                                    latent_tiled_size=64, 
-                                                    latent_tiled_overlap=24,
-                                                    output_type = 'pt',
-                                                    return_dict=False, lq_id=None
-                                                )
+                                    prompt=val_prompt, control_image=val_lq, num_inference_steps=cfg.data.val.num_inference_steps, generator=generator, height=height, width=width,
+                                    guidance_scale=cfg.data.val.guidance_scale, negative_prompt=neg_prompt,
+                                    start_point=cfg.data.val.start_point, latent_tiled_size=cfg.data.val.latent_tiled_size, latent_tiled_overlap=cfg.data.val.latent_tiled_overlap,
+                                    output_type = 'pt', return_dict=False, lq_id=val_img_id[0], global_step=global_step
+                                )
                             val_restored_img = val_out[0]
                             val_ocr_result = val_out[1]
 

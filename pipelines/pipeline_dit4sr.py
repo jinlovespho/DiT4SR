@@ -1026,6 +1026,8 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
                 sigma = sigma.unsqueeze(-1)
             latents = (1.0 - sigma) * latents_condition_image + sigma * latents
 
+        train_glob_step = kwargs.get('global_step')
+
         # 8. Denoising loop
         with self.progress_bar(total=num_inference_steps) as progress_bar:
 
@@ -1041,7 +1043,10 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
             if self.cfg.data.val.save_prompts:
                 txt_save_path = f"{self.cfg.save.output_dir}/{self.cfg.log.tracker.run_name}/final_pred_txt"
                 os.makedirs(txt_save_path, exist_ok=True)
-                txt_file = f"{txt_save_path}/{kwargs['lq_id']}.txt"
+                if train_glob_step is not None:
+                    txt_file = f"{txt_save_path}/{kwargs['lq_id']}_step{train_glob_step:09d}.txt"
+                else:
+                    txt_file = f"{txt_save_path}/{kwargs['lq_id']}.txt"
                 with open(txt_file, "w") as f:
                     f.write(f"{kwargs['lq_id']}\n")
                     f.write(f'[init prompt]: {prompt}\n\n')
