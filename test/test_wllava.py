@@ -198,7 +198,7 @@ def load_dit4sr_pipeline(cfg, accelerator):
         )
         print(f"Loaded Trained DiT checkpoint: {cfg.ckpt.final_val_ckpt.dit}")
 
-
+    ts_module=None
     # load ts module 
     if cfg.train.finetune_model == 'dit4sr_testr':
         from testr.adet.modeling.transformer_detector import TransformerDetector
@@ -575,7 +575,8 @@ def main(cfg):
                             output_type = 'pt', return_dict=False, lq_id=lq_id
                         )
                     val_restored_img = val_out[0]
-                    val_ocr_result = val_out[1]
+                    if len(val_out) > 1:
+                        val_ocr_result = val_out[1]
                     end_time = time.time()
                     print(f'inference time: {end_time-start_time:.2f}s')
                 
@@ -642,54 +643,55 @@ def main(cfg):
                             })
 
 
-                ## -------------------- vis val ocr results -------------------- 
-                print('== logging val ocr results ===')
-                val_ocr_save_path = f'{cfg.save.output_dir}/{cfg.log.tracker.run_name}/vis_ocr_result'
-                os.makedirs(val_ocr_save_path, exist_ok=True)
+                if cfg.train.finetune_model == 'dit4sr_testr':
+                    ## -------------------- vis val ocr results -------------------- 
+                    print('== logging val ocr results ===')
+                    val_ocr_save_path = f'{cfg.save.output_dir}/{cfg.log.tracker.run_name}/vis_ocr_result'
+                    os.makedirs(val_ocr_save_path, exist_ok=True)
 
-                img_lq = val_lq_img.detach().permute(0,2,3,1).cpu().numpy() # b h w c
-                img_gt = val_gt_img.detach().permute(0,2,3,1).cpu().numpy()
+                    img_lq = val_lq_img.detach().permute(0,2,3,1).cpu().numpy() # b h w c
+                    img_gt = val_gt_img.detach().permute(0,2,3,1).cpu().numpy()
 
-                for vis_batch_idx in range(len(img_gt)):
-                    vis_lq = img_lq[vis_batch_idx] # h w c 
-                    # vis_lq = (vis_lq + 1.0)/2.0 * 255.0
-                    vis_lq = vis_lq * 255.0
-                    vis_lq = vis_lq.astype(np.uint8)
-                    vis_lq = vis_lq.copy()
+                    for vis_batch_idx in range(len(img_gt)):
+                        vis_lq = img_lq[vis_batch_idx] # h w c 
+                        # vis_lq = (vis_lq + 1.0)/2.0 * 255.0
+                        vis_lq = vis_lq * 255.0
+                        vis_lq = vis_lq.astype(np.uint8)
+                        vis_lq = vis_lq.copy()
 
-                    vis_gt = img_gt[vis_batch_idx] # h w c
-                    # vis_gt = (vis_gt + 1.0)/2.0 * 255.0
-                    vis_gt = vis_gt * 255.0
-                    vis_gt = vis_gt.astype(np.uint8)
-                    vis_pred = vis_lq.copy()
-                    vis_gt = vis_gt.copy()
+                        vis_gt = img_gt[vis_batch_idx] # h w c
+                        # vis_gt = (vis_gt + 1.0)/2.0 * 255.0
+                        vis_gt = vis_gt * 255.0
+                        vis_gt = vis_gt.astype(np.uint8)
+                        vis_pred = vis_lq.copy()
+                        vis_gt = vis_gt.copy()
 
-                    ocr_res = val_ocr_result[vis_batch_idx]
-                    vis_polys = ocr_res.polygons.view(-1,16,2)  # b 16 2
-                    vis_recs = ocr_res.recs                     # b 25
-                    for vis_img_idx in range(len(vis_polys)):
-                        pred_poly = vis_polys[vis_img_idx]   # 16 2
-                        pred_poly = np.array(pred_poly.detach().cpu()).astype(np.int32)         
-                        pred_rec = vis_recs[vis_img_idx]     # 25
-                        pred_txt = decode(pred_rec.tolist())
-                        cv2.polylines(vis_pred, [pred_poly], isClosed=True, color=(0,255,0), thickness=2)
-                        cv2.putText(vis_pred, pred_txt, (pred_poly[0][0], pred_poly[0][1]-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1)
-                    # cv2.imwrite(f'{val_ocr_save_path}/ocr_pred_{lq_id}.jpg.jpg', vis_pred[:,:,::-1])
+                        ocr_res = val_ocr_result[vis_batch_idx]
+                        vis_polys = ocr_res.polygons.view(-1,16,2)  # b 16 2
+                        vis_recs = ocr_res.recs                     # b 25
+                        for vis_img_idx in range(len(vis_polys)):
+                            pred_poly = vis_polys[vis_img_idx]   # 16 2
+                            pred_poly = np.array(pred_poly.detach().cpu()).astype(np.int32)         
+                            pred_rec = vis_recs[vis_img_idx]     # 25
+                            pred_txt = decode(pred_rec.tolist())
+                            cv2.polylines(vis_pred, [pred_poly], isClosed=True, color=(0,255,0), thickness=2)
+                            cv2.putText(vis_pred, pred_txt, (pred_poly[0][0], pred_poly[0][1]-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1)
+                        # cv2.imwrite(f'{val_ocr_save_path}/ocr_pred_{lq_id}.jpg.jpg', vis_pred[:,:,::-1])
 
-                    if gt_exist:
-                        gt_polys = val_polys
-                        gt_texts = val_text
-                        for vis_img_idx in range(len(gt_polys)):
-                            gt_poly = gt_polys[vis_img_idx]*512.0   # 16 2
-                            gt_poly = np.array(gt_poly).astype(np.int32)
-                            gt_txt = gt_texts[vis_img_idx]
-                            cv2.polylines(vis_gt, [gt_poly], isClosed=True, color=(0,255,0), thickness=2)
-                            cv2.putText(vis_gt, gt_txt, (gt_poly[0][0], gt_poly[0][1]-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1)
-                        # cv2.imwrite(f'{val_ocr_save_path}/ocr_gt_valimg{val_step}_{val_img_id[vis_batch_idx]}.jpg', vis_gt[:,:,::-1])
-                        vis_ocr = cv2.hconcat([vis_pred, vis_gt])
-                        # cv2.imwrite(f'{val_ocr_save_path}/ocr_gt_{lq_id}.jpg', vis_gt[:,:,::-1])
-                        cv2.imwrite(f'{val_ocr_save_path}/ocr_{lq_id}.jpg', vis_ocr[:,:,::-1])
-                ## -------------------- vis val ocr results -------------------- 
+                        if gt_exist:
+                            gt_polys = val_polys
+                            gt_texts = val_text
+                            for vis_img_idx in range(len(gt_polys)):
+                                gt_poly = gt_polys[vis_img_idx]*512.0   # 16 2
+                                gt_poly = np.array(gt_poly).astype(np.int32)
+                                gt_txt = gt_texts[vis_img_idx]
+                                cv2.polylines(vis_gt, [gt_poly], isClosed=True, color=(0,255,0), thickness=2)
+                                cv2.putText(vis_gt, gt_txt, (gt_poly[0][0], gt_poly[0][1]-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1)
+                            # cv2.imwrite(f'{val_ocr_save_path}/ocr_gt_valimg{val_step}_{val_img_id[vis_batch_idx]}.jpg', vis_gt[:,:,::-1])
+                            vis_ocr = cv2.hconcat([vis_pred, vis_gt])
+                            # cv2.imwrite(f'{val_ocr_save_path}/ocr_gt_{lq_id}.jpg', vis_gt[:,:,::-1])
+                            cv2.imwrite(f'{val_ocr_save_path}/ocr_{lq_id}.jpg', vis_ocr[:,:,::-1])
+                    ## -------------------- vis val ocr results -------------------- 
         
         # average using numpy
         tot_val_psnr = np.array(tot_val_psnr).mean()

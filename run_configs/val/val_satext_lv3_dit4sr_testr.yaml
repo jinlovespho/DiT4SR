@@ -29,7 +29,8 @@ data:
     save_prompts: True
     sample_times: 1
     guidance_scale: 1.0
-    start_point: noise
+    # start_point: noise
+    start_point: lr 
     latent_tiled_size: 64
     latent_tiled_overlap: 24
     upscale: 4
@@ -70,7 +71,10 @@ ckpt:
   resume_path:
     dit:
   final_val_ckpt: 
-    dit: result_train/serv12gpu0_fp16_satext_dit4sr_lr1e5_testr_lr1e4_bs3_gradaccum4_gtprompt_ocrloss001/TRAIN_serv12gpu0_fp16_satext_dit4sr_lr1e-5_testr_lr1e-4_bs3_gradaccum4_gtprompt_ocrloss0.01/checkpoint-30000
+    # dit: result_train/serv12gpu0_fp16_satext_dit4sr_lr1e5_testr_lr1e4_bs3_gradaccum4_gtprompt_ocrloss001/TRAIN_serv12gpu0_fp16_satext_dit4sr_lr1e-5_testr_lr1e-4_bs3_gradaccum4_gtprompt_ocrloss0.01/checkpoint-30000
+    # dit: result_train/serv12gpu1_fp16_satext_dit4sr_lr1e5_testr_lr1e4_bs3_gradaccum4_gtprompt_ocrloss01/TRAIN_serv12gpu1_fp16_satext_dit4sr_lr1e-5_testr_lr1e-4_bs3_gradaccum4_gtprompt_ocrloss0.1/checkpoint-20000
+    dit: result_train/serv12gpu0_fp16_satext_dit4sr_lr1e5_testr_lr1e4_bs3_gradaccum4_gtprompt_ocrloss001/TRAIN_serv12gpu0_fp16_satext_dit4sr_lr1e-5_testr_lr1e-4_bs3_gradaccum4_gtprompt_ocrloss0.01/checkpoint-45000
+    # dit: result_train/serv12gpu1_fp16_satext_dit4sr_lr1e5_testr_lr1e4_bs3_gradaccum4_gtprompt_ocrloss0005/TRAIN_serv12gpu1_fp16_satext_dit4sr_lr1e-5_testr_lr1e-4_bs3_gradaccum4_gtprompt_ocrloss0.005/checkpoint-20000
 
 
 
@@ -107,7 +111,10 @@ val:
 
 
 save:
-  output_dir: ./result_val/satext_lv3/serv12gpu0_fp16_satext_dit4sr_lr1e-5_testr_lr1e-4_bs3_gradaccum4_gtprompt_ocrloss0.01_checkpoint-30000
+  # output_dir: ./result_val/satext_lv3/serv12gpu0_fp16_satext_dit4sr_lr1e-5_testr_lr1e-4_bs3_gradaccum4_gtprompt_ocrloss0.01_checkpoint-30000
+  # output_dir: ./result_val/satext_lv3/serv12gpu1_fp16_satext_dit4sr_lr1e-5_testr_lr1e-4_bs3_gradaccum4_gtprompt_ocrloss0.1_checkpoint-20000
+  output_dir: ./result_val/satext_lv3/serv12gpu0_fp16_satext_dit4sr_lr1e-5_testr_lr1e-4_bs3_gradaccum4_gtprompt_ocrloss0.01/checkpoint-45000_LRE
+  # output_dir: ./result_val/satext_lv3/serv12gpu1_fp16_satext_dit4sr_lr1e-5_testr_lr1e-4_bs3_gradaccum4_gtprompt_ocrloss0.005/checkpoint-20000
   checkpointing_steps: 
 
 
@@ -116,5 +123,8 @@ log:
     report_to: wandb 
     key: e32eed0c2509bf898b850b0065ab62345005fb73
     project_name: cvpr26_tair_extension
-    run_name: VAL_SATextLv3_serv12gpu0_fp16_satext_dit4sr_lr1e-5_testr_lr1e-4_bs3_gradaccum4_gtprompt_ocrloss0.01_checkpoint-30000
+    # run_name: VAL_SATextLv3_serv12gpu0_fp16_satext_dit4sr_lr1e-5_testr_lr1e-4_bs3_gradaccum4_gtprompt_ocrloss0.01_checkpoint-30000
+    # run_name: VAL_SATextLv3_serv12gpu1_fp16_satext_dit4sr_lr1e-5_testr_lr1e-4_bs3_gradaccum4_gtprompt_ocrloss0.1_checkpoint-20000
+    run_name: VAL_SATextLv3_serv12gpu0_fp16_satext_dit4sr_lr1e-5_testr_lr1e-4_bs3_gradaccum4_gtprompt_ocrloss0.01/checkpoint-45000_LRE
+    # run_name: VAL_SATextLv3_serv12gpu1_fp16_satext_dit4sr_lr1e-5_testr_lr1e-4_bs3_gradaccum4_gtprompt_ocrloss0.005/checkpoint-20000
   log_dir: logs

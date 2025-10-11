@@ -1,0 +1,125 @@
+
+
+init:
+  seed: 42
+
+
+data:
+  name:
+  satext:  
+    data_path: 
+    hq_prompt_path: 
+    hq_val_prompt_path: 
+    null_text_ratio: 
+    val_num_img: 
+
+  val:
+    name: realtext
+    lq_image_path: /media/dataset2/text_restoration/tair_published/real_text/LQ
+    gt_image_path: /media/dataset2/text_restoration/tair_published/real_text/HQ
+    ann_path: /media/dataset2/text_restoration/tair_published/real_text/realtext_ann.json
+    use_precomputed_prompts: results/realtext/dit4sr_q_wllava/txt
+    captioner: llava
+    captioner_size: 
+    saved_caption_path: 
+    use_satext_gtprompt: False
+    use_nullprompt: False
+    added_prompt: "Cinematic, hyper sharpness, highly detailed, perfect without deformations, camera, hyper detailed photo - realistic maximum detail, 32k, Color Grading, ultra HD, extreme meticulous detailing, skin pore detailing." 
+    negative_prompt:
+    save_prompts: True
+    sample_times: 1
+    guidance_scale: 1.0
+    start_point: noise
+    latent_tiled_size: 64
+    latent_tiled_overlap: 24
+    upscale: 4
+    process_size: 512
+    num_inference_steps: 40
+    align_method: adain
+
+
+
+
+model:
+  noise_scheduler:
+    weighting_scheme:
+    logit_mean: 
+    logit_std: 
+    mode_scale:
+    precondition_outputs: 
+
+  dit:
+    name:
+    resolution: 
+    load_precomputed_caption: 
+    use_gtprompt: 
+
+  ts_module:
+    name:
+
+
+ckpt:
+  init_path:
+    vae: preset/models/stable-diffusion-3.5-medium
+    noise_scheduler: preset/models/stable-diffusion-3.5-medium
+    tokenizer: preset/models/stable-diffusion-3.5-medium
+    text_encoder: preset/models/stable-diffusion-3.5-medium
+    dit: preset/models/dit4sr_q
+    ts_module: model_ckpts/totaltext_testr_R_50_polygon.pth
+  resume_path:
+    dit:
+  final_val_ckpt: 
+    # dit: result_train/serv12gpu0_fp16_satext_dit4sr_lr1e5_testr_lr1e4_bs3_gradaccum4_gtprompt_ocrloss001/TRAIN_serv12gpu0_fp16_satext_dit4sr_lr1e-5_testr_lr1e-4_bs3_gradaccum4_gtprompt_ocrloss0.01/checkpoint-30000
+    # dit: result_train/serv12gpu1_fp16_satext_dit4sr_lr1e5_testr_lr1e4_bs3_gradaccum4_gtprompt_ocrloss01/TRAIN_serv12gpu1_fp16_satext_dit4sr_lr1e-5_testr_lr1e-4_bs3_gradaccum4_gtprompt_ocrloss0.1/checkpoint-20000
+    dit: 
+
+
+
+
+train:
+  # finetune_model: dit4sr_testr
+  finetune_model: dit4sr
+  finetune_method:
+  batch_size: 
+  num_workers: 
+  num_train_epochs:
+  max_train_steps: 
+  mixed_precision: "fp16"
+  lr_scheduler: 
+  lr_warmup_steps: 
+  lr_num_cycles: 
+  lr_power: 
+  max_grad_norm:
+  set_grads_to_none: 
+  gradient_checkpointing:
+  gradient_accumulation_steps: 
+  scale_lr: 
+  use_8bit_adam: 
+  learning_rate:
+    dit: 
+    ts_module: 
+  ocr_loss_weight: 
+
+
+val:
+  batch_size: 
+  num_workers: 
+  val_every_step: 
+  log_train_ocr_result_every: 
+
+
+
+save:
+  # output_dir: ./result_val/realtext/serv12gpu0_fp16_satext_dit4sr_lr1e-5_testr_lr1e-4_bs3_gradaccum4_gtprompt_ocrloss0.01_checkpoint-30000
+  output_dir: ./result_val/realtext/dit4sr_baseline_llavaprompt
+  checkpointing_steps: 
+
+
+log:
+  tracker: 
+    report_to: wandb 
+    key: e32eed0c2509bf898b850b0065ab62345005fb73
+    project_name: cvpr26_tair_extension
+    # run_name: VAL_RealText_serv12gpu0_fp16_satext_dit4sr_lr1e-5_testr_lr1e-4_bs3_gradaccum4_gtprompt_ocrloss0.01_checkpoint-30000
+    run_name: VAL_RealText_dit4sr_baseline_llavaprompt
+  log_dir: logs

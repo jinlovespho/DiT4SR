@@ -98,7 +98,7 @@ def main(cfg):
     val_pipeline = StableDiffusion3ControlNetPipeline(
         vae=models['vae'], text_encoder=models['text_encoders'][0], text_encoder_2=models['text_encoders'][1], text_encoder_3=models['text_encoders'][2], 
         tokenizer=models['tokenizers'][0], tokenizer_2=models['tokenizers'][1], tokenizer_3=models['tokenizers'][2], 
-        transformer=transformer, scheduler=models['noise_scheduler'], ts_module = models['testr']
+        transformer=transformer, scheduler=models['noise_scheduler'], ts_module = models['testr'], cfg=cfg
     )
 
 
@@ -367,49 +367,49 @@ def main(cfg):
                 optimizer.zero_grad(set_to_none=cfg.train.set_grads_to_none)
 
 
-                ## -------------------- vis training ocr results -------------------- 
-                if cfg.val.log_train_ocr_result_every != -1 and global_step % cfg.val.log_train_ocr_result_every == 0:
-                    print('== logging training ocr results ===')
-                    train_ocr_save_path = f'{cfg.save.output_dir}/{cfg.log.tracker.run_name}/ocr_result_train'
-                    os.makedirs(train_ocr_save_path, exist_ok=True)
+                # ## -------------------- vis training ocr results -------------------- 
+                # if cfg.val.log_train_ocr_result_every != -1 and global_step % cfg.val.log_train_ocr_result_every == 0:
+                #     print('== logging training ocr results ===')
+                #     train_ocr_save_path = f'{cfg.save.output_dir}/{cfg.log.tracker.run_name}/ocr_result_train'
+                #     os.makedirs(train_ocr_save_path, exist_ok=True)
 
-                    img_lq = lq.detach().permute(0,2,3,1).cpu().numpy() # b h w c
-                    img_gt = gt.detach().permute(0,2,3,1).cpu().numpy()
+                #     img_lq = lq.detach().permute(0,2,3,1).cpu().numpy() # b h w c
+                #     img_gt = gt.detach().permute(0,2,3,1).cpu().numpy()
 
-                    for vis_batch_idx in range(len(ocr_result)):
-                        # vis_lq = img_lq[vis_batch_idx] # h w c 
-                        # vis_lq = (vis_lq + 1.0)/2.0 * 255.0
-                        # vis_lq = vis_lq.astype(np.uint8)
-                        # vis_lq = vis_lq.copy()
+                #     for vis_batch_idx in range(len(ocr_result)):
+                #         # vis_lq = img_lq[vis_batch_idx] # h w c 
+                #         # vis_lq = (vis_lq + 1.0)/2.0 * 255.0
+                #         # vis_lq = vis_lq.astype(np.uint8)
+                #         # vis_lq = vis_lq.copy()
 
-                        vis_gt = img_gt[vis_batch_idx] # h w c
-                        vis_gt = (vis_gt + 1.0)/2.0 * 255.0
-                        vis_gt = vis_gt.astype(np.uint8)
-                        vis_pred = vis_gt.copy()
-                        vis_gt = vis_gt.copy()
+                #         vis_gt = img_gt[vis_batch_idx] # h w c
+                #         vis_gt = (vis_gt + 1.0)/2.0 * 255.0
+                #         vis_gt = vis_gt.astype(np.uint8)
+                #         vis_pred = vis_gt.copy()
+                #         vis_gt = vis_gt.copy()
 
-                        ocr_res = ocr_result[vis_batch_idx]
-                        vis_polys = ocr_res.polygons.view(-1,16,2)  # b 16 2
-                        vis_recs = ocr_res.recs                     # b 25
-                        for vis_img_idx in range(len(vis_polys)):
-                            pred_poly = vis_polys[vis_img_idx]   # 16 2
-                            pred_poly = np.array(pred_poly.detach().cpu()).astype(np.int32)         
-                            pred_rec = vis_recs[vis_img_idx]     # 25
-                            pred_txt = decode(pred_rec.tolist())
-                            cv2.polylines(vis_pred, [pred_poly], isClosed=True, color=(0,255,0), thickness=2)
-                            cv2.putText(vis_pred, pred_txt, (pred_poly[0][0], pred_poly[0][1]-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1)
-                        cv2.imwrite(f'{train_ocr_save_path}/step{global_step}_{img_id[vis_batch_idx]}_ocr_pred.jpg.jpg', vis_pred[:,:,::-1])
+                #         ocr_res = ocr_result[vis_batch_idx]
+                #         vis_polys = ocr_res.polygons.view(-1,16,2)  # b 16 2
+                #         vis_recs = ocr_res.recs                     # b 25
+                #         for vis_img_idx in range(len(vis_polys)):
+                #             pred_poly = vis_polys[vis_img_idx]   # 16 2
+                #             pred_poly = np.array(pred_poly.detach().cpu()).astype(np.int32)         
+                #             pred_rec = vis_recs[vis_img_idx]     # 25
+                #             pred_txt = decode(pred_rec.tolist())
+                #             cv2.polylines(vis_pred, [pred_poly], isClosed=True, color=(0,255,0), thickness=2)
+                #             cv2.putText(vis_pred, pred_txt, (pred_poly[0][0], pred_poly[0][1]-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1)
+                #         cv2.imwrite(f'{train_ocr_save_path}/step{global_step}_{img_id[vis_batch_idx]}_ocr_pred.jpg.jpg', vis_pred[:,:,::-1])
 
-                        gt_polys = polys[vis_batch_idx]             # b 16 2
-                        gt_texts = text[vis_batch_idx]
-                        for vis_img_idx in range(len(gt_polys)):
-                            gt_poly = gt_polys[vis_img_idx]*512.0   # 16 2
-                            gt_poly = np.array(gt_poly.detach().cpu()).astype(np.int32)
-                            gt_txt = gt_texts[vis_img_idx]
-                            cv2.polylines(vis_gt, [gt_poly], isClosed=True, color=(0,255,0), thickness=2)
-                            cv2.putText(vis_gt, gt_txt, (gt_poly[0][0], gt_poly[0][1]-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1)
-                        cv2.imwrite(f'{train_ocr_save_path}/step{global_step}_{img_id[vis_batch_idx]}_ocr_gt.jpg', vis_gt[:,:,::-1])
-                ## -------------------- vis training ocr results -------------------- 
+                #         gt_polys = polys[vis_batch_idx]             # b 16 2
+                #         gt_texts = text[vis_batch_idx]
+                #         for vis_img_idx in range(len(gt_polys)):
+                #             gt_poly = gt_polys[vis_img_idx]*512.0   # 16 2
+                #             gt_poly = np.array(gt_poly.detach().cpu()).astype(np.int32)
+                #             gt_txt = gt_texts[vis_img_idx]
+                #             cv2.polylines(vis_gt, [gt_poly], isClosed=True, color=(0,255,0), thickness=2)
+                #             cv2.putText(vis_gt, gt_txt, (gt_poly[0][0], gt_poly[0][1]-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1)
+                #         cv2.imwrite(f'{train_ocr_save_path}/step{global_step}_{img_id[vis_batch_idx]}_ocr_gt.jpg', vis_gt[:,:,::-1])
+                # ## -------------------- vis training ocr results -------------------- 
 
 
 
@@ -492,7 +492,7 @@ def main(cfg):
                                                     latent_tiled_size=64, 
                                                     latent_tiled_overlap=24,
                                                     output_type = 'pt',
-                                                    return_dict=False
+                                                    return_dict=False, lq_id=None
                                                 )
                             val_restored_img = val_out[0]
                             val_ocr_result = val_out[1]

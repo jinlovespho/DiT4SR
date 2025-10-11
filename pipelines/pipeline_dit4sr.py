@@ -1086,65 +1086,68 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
                     )
                     noise_pred = trans_out[0]
 
-                    if len(trans_out) > 1:
-                        etc_out = trans_out[1]
-                        # unpatchify
-                        patch_size = self.transformer.config.patch_size  # 2
-                        hidden_dim = self.transformer.config.num_attention_heads * self.transformer.config.attention_head_dim     # 1536
-                        height = 64 // patch_size       # 32
-                        width = 64 // patch_size        # 32
-                        extracted_feats = [rearrange(feat['extract_feat'], 'b (H W) (pH pW d) -> b d (H pH) (W pW)', H=height, W=width, pH=patch_size, pW=patch_size) for feat in etc_out ]    # b 384 64 64 
-                        extracted_feats = [f.to(torch.float32) for f in extracted_feats]
-                        with torch.cuda.amp.autocast(enabled=False):
-                            with torch.no_grad():
-                                _, ocr_result = self.ts_module(extracted_feats, targets=None, MODE='VAL')                        
-                        results_per_img = ocr_result[0]
-                        if i==20:
-                            val_ocr_result = ocr_result
+                    # ts module forward pass 
+                    if self.cfg.train.finetune_model == 'dit4sr_testr':
+                        if len(trans_out) > 1:
+                            etc_out = trans_out[1]
+                            # unpatchify
+                            patch_size = self.transformer.config.patch_size  # 2
+                            hidden_dim = self.transformer.config.num_attention_heads * self.transformer.config.attention_head_dim     # 1536
+                            height = 64 // patch_size       # 32
+                            width = 64 // patch_size        # 32
+                            extracted_feats = [rearrange(feat['extract_feat'], 'b (H W) (pH pW d) -> b d (H pH) (W pW)', H=height, W=width, pH=patch_size, pW=patch_size) for feat in etc_out ]    # b 384 64 64 
+                            extracted_feats = [f.to(torch.float32) for f in extracted_feats]
+                            with torch.cuda.amp.autocast(enabled=False):
+                                with torch.no_grad():
+                                    _, ocr_result = self.ts_module(extracted_feats, targets=None, MODE='VAL')                        
+                            results_per_img = ocr_result[0]
+                            if i==20:
+                                val_ocr_result = ocr_result
 
 
-                        ts_pred_text=[]
-                        pred_polys=[]
-                        
-                        for j in range(len(results_per_img.polygons)):
-                            val_ctrl_pnt= results_per_img.polygons[j].view(16,2).cpu().detach().numpy().astype(np.int32)    # 32 -> 16 2
-                            val_rec = results_per_img.recs[j]
-                            val_pred_text = decode(val_rec)
+                            ts_pred_text=[]
+                            pred_polys=[]
                             
-                            pred_polys.append(val_ctrl_pnt)
-                            ts_pred_text.append(val_pred_text)
-                        pred_prompt = [f"{', '.join(ts_pred_text)}"]
-                        print(f"iter: {i:02d} | timestep: {t.item():8.2f} | text prompt: {pred_prompt}")
+                            for j in range(len(results_per_img.polygons)):
+                                val_ctrl_pnt= results_per_img.polygons[j].view(16,2).cpu().detach().numpy().astype(np.int32)    # 32 -> 16 2
+                                val_rec = results_per_img.recs[j]
+                                val_pred_text = decode(val_rec)
+                                
+                                pred_polys.append(val_ctrl_pnt)
+                                ts_pred_text.append(val_pred_text)
+                            pred_prompt = [f"{', '.join(ts_pred_text)}"]
+                            print(f"iter: {i:02d} | timestep: {t.item():8.2f} | text prompt: {pred_prompt}")
 
-                        if self.cfg.data.val.save_prompts:
-                            with open(txt_file, "a") as f:
-                                f.write(f"iter: {i:02d}   |   timestep: {t.item():8.2f}   |   text prompt: {pred_prompt}\n")
+                            if self.cfg.train.finetune_model == 'dit4sr_testr':
+                                if self.cfg.data.val.save_prompts:
+                                    with open(txt_file, "a") as f:
+                                        f.write(f"iter: {i:02d}   |   timestep: {t.item():8.2f}   |   text prompt: {pred_prompt}\n")
 
-                        # ts module inference prompt 
-                        (
-                            prompt_embeds,
-                            _,
-                            pooled_prompt_embeds,
-                            _,
-                        ) = self.encode_prompt(
-                            prompt=pred_prompt,
-                            prompt_2=None,
-                            prompt_3=None,
-                            negative_prompt=None,
-                            negative_prompt_2=None,
-                            negative_prompt_3=None,
-                            do_classifier_free_guidance=False,
-                            prompt_embeds=None,
-                            negative_prompt_embeds=None,
-                            pooled_prompt_embeds=None,
-                            negative_pooled_prompt_embeds=None,
-                            device=device,
-                            clip_skip=None,
-                            num_images_per_prompt=num_images_per_prompt,
-                            max_sequence_length=max_sequence_length,
-                        )
+                            # ts module inference prompt 
+                            (
+                                prompt_embeds,
+                                _,
+                                pooled_prompt_embeds,
+                                _,
+                            ) = self.encode_prompt(
+                                prompt=pred_prompt,
+                                prompt_2=None,
+                                prompt_3=None,
+                                negative_prompt=None,
+                                negative_prompt_2=None,
+                                negative_prompt_3=None,
+                                do_classifier_free_guidance=False,
+                                prompt_embeds=None,
+                                negative_prompt_embeds=None,
+                                pooled_prompt_embeds=None,
+                                negative_pooled_prompt_embeds=None,
+                                device=device,
+                                clip_skip=None,
+                                num_images_per_prompt=num_images_per_prompt,
+                                max_sequence_length=max_sequence_length,
+                            )
 
-                        
+                            
 
 
                 else:
@@ -1305,7 +1308,11 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
         # Offload all models
         self.maybe_free_model_hooks()
 
+
         if not return_dict:
-            return (image, val_ocr_result)
+            if self.cfg.train.finetune_model == 'dit4sr_testr':
+                return (image, val_ocr_result)
+            else:
+                return (image,)
 
         return StableDiffusion3PipelineOutput(images=image)
