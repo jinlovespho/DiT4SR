@@ -1,6 +1,8 @@
-
 import os 
+import cv2
 import math
+import glob
+import json
 import copy
 import logging
 import argparse
@@ -17,12 +19,38 @@ import torch
 import torch.utils 
 from dataloaders.paired_dataset_sd3_latent import PairedCaptionDataset
 
+import numpy as np
+
 import wandb
 
 import bitsandbytes as bnb
 from model_dit4sr.transformer_sd3 import SD3Transformer2DModel
 from diffusers.training_utils import cast_training_params
 from transformers import PretrainedConfig
+
+CTLABELS = [' ','!','"','#','$','%','&','\'','(',')','*','+',',','-','.','/','0','1','2','3','4','5','6','7','8','9',':',';','<','=','>','?','@','A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','Q','R','S','T','U','V','W','X','Y','Z','[','\\',']','^','_','`','a','b','c','d','e','f','g','h','i','j','k','l','m','n','o','p','q','r','s','t','u','v','w','x','y','z','{','|','}','~']
+
+def decode(idxs):
+    s = ''
+    for idx in idxs:
+        if idx < len(CTLABELS):
+            s += CTLABELS[idx]
+        else:
+            return s
+    return s
+
+
+def encode(word):
+    s = []
+    max_word_len = 25
+    for i in range(max_word_len):
+        if i < len(word):
+            char=word[i]
+            idx = CTLABELS.index(char)
+            s.append(idx)
+        else:
+            s.append(96)
+    return s
 
 
 # Copied from dreambooth sd3 example
@@ -59,7 +87,7 @@ def load_text_encoders(class_one, class_two, class_three, cfg):
     return text_encoder_one, text_encoder_two, text_encoder_three
 
 
-def load_experiment_setting(cfg, logger):
+def load_experiment_setting(cfg, logger, exp_name):
     logging_dir = Path(cfg.save.output_dir, cfg.log.log_dir)
     accelerator_project_config = ProjectConfiguration(project_dir=cfg.save.output_dir, logging_dir=logging_dir)
     kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
@@ -89,7 +117,7 @@ def load_experiment_setting(cfg, logger):
     # Handle the repository creation
     if accelerator.is_main_process:
         if cfg.save.output_dir is not None:
-            os.makedirs(f'{cfg.save.output_dir}/{cfg.log.tracker.run_name}', exist_ok=True)
+            os.makedirs(f'{cfg.save.output_dir}/{exp_name}', exist_ok=True)
     # `accelerate` 0.16.0 will have better support for customized saving
     if version.parse(accelerate.__version__) >= version.parse("0.16.0"):
         # create custom saving & loading hooks so that `accelerator.save_state(...)` serializes in a nice format
@@ -122,29 +150,106 @@ def load_experiment_setting(cfg, logger):
                     ts_ckpt = torch.load(f'{input_dir}/ts_module.pt', map_location="cpu")
                     load_result = model.load_state_dict(ts_ckpt['ts_module'], strict=False)
                     print('- TS MODULE load result: ', load_result)
-                    breakpoint()
         accelerator.register_save_state_pre_hook(save_model_hook)
         accelerator.register_load_state_pre_hook(load_model_hook)
     return accelerator
 
 
+def load_val_data(val_data):
+    files=[]
+    # load lq, hq
+    lq_paths = sorted(glob.glob(f'{val_data.lq_img_path}/*.jpg'))
+    hq_paths = sorted(glob.glob(f'{val_data.hq_img_path}/*.jpg'))
+    # load ann
+    with open(val_data.ann_path, 'r') as f:
+        anns = json.load(f)
+        anns = sorted(anns.items())
+    # for
+    val_count=0
+    for lq, hq, ann in zip(lq_paths, hq_paths, anns):
+        val_count+=1
+        if val_count > val_data.val_num_img:
+            break
+        # safety check
+        lq_id = lq.split('/')[-1].split('.')[0]
+        hq_id = hq.split('/')[-1].split('.')[0]
+        ann_id = ann[0]
+        assert lq_id == hq_id == ann_id
+        # process anns
+        boxes=[]
+        texts=[]
+        text_encs=[]
+        polys=[]        
+        img_anns = ann[1]['0']['text_instances']
+        for img_ann in img_anns:
+            # process text 
+            text = img_ann['text']
+            count=0
+            for char in text:
+                # only allow OCR english vocab: range(32,127)
+                if 32 <= ord(char) and ord(char) < 127:
+                    count+=1
+                    # print(char, ord(char))
+            if count == len(text) and count < 26:
+                texts.append(text)
+                text_encs.append(encode(text))
+                assert text == decode(encode(text)), 'check text encoding !'
+            else:
+                continue
+            # process box
+            box_xyxy = img_ann['bbox']
+            boxes.append(box_xyxy)
+            # process polygons
+            poly = np.array(img_ann['polygon']).astype(np.int32)    # 16 2
+            polys.append(poly)
+        # # JLP VIS
+        # img0 = cv2.imread(hq)  # 512 512 3
+        # img0_box = np.copy(img0)
+        # img0_poly = np.copy(img0)
+        # x1,y1,x2,y2 = box_xyxy
+        # cv2.rectangle(img0_box, (x1,y1), (x2, y2), (0,255,0), 2)
+        # cv2.polylines(img0_poly, [poly], True, (0,255,0), 2)
+        # cv2.putText(img0_box, text, (poly[0][0], poly[0][1]-5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
+        # cv2.putText(img0_poly, text, (poly[0][0], poly[0][1]-5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
+        # cv2.imwrite('./img0_box.jpg', img0_box)
+        # cv2.imwrite('./img0_poly.jpg', img0_poly)
+        assert len(boxes) == len(texts) == len(text_encs) == len(polys), f" Check loader!"
+        # if the filetered image has no bbox and texts, skip it
+        if len(boxes) == 0 or len(polys) == 0:
+            continue
+        files.append({  "lq_path": lq,
+                        'hq_path': hq,
+                        "text": texts, 
+                        "bbox": boxes,
+                        'poly': polys,
+                        'text_enc': text_encs, 
+                        "img_id": lq_id})     
+    return files
+
+
 
 def load_data(cfg):
 
-    # breakpoint()
-    if cfg.data.name == 'satext':
+    # training data
+    if cfg.data.train.name == 'satext':
         from basicsr.data.pho_realesrgan_dataset import PhoRealESRGANDataset
         from basicsr.data.pho_realesrgan_dataset import collate_fn_real
         collate_fn = collate_fn_real
-
-        train_ds = PhoRealESRGANDataset(cfg.data, mode='train')
-        val_ds = PhoRealESRGANDataset(cfg.data, mode='val')
-    
+        train_ds = PhoRealESRGANDataset(cfg.data.train, mode='train')
     train_loader = torch.utils.data.DataLoader(train_ds, shuffle=True, batch_size=cfg.train.batch_size, num_workers=cfg.train.num_workers, collate_fn=collate_fn)
-    val_loader = torch.utils.data.DataLoader(val_ds, shuffle=False, batch_size=cfg.val.batch_size, num_workers=cfg.val.num_workers, collate_fn=collate_fn)
-    # val_loader = None
 
-    return train_loader, val_loader
+    # validation data
+    validation_data={}
+    if 'realtext' in cfg.data.val.eval_list:
+        validation_data['realtext']=load_val_data(cfg.data.val.realtext)
+    if 'satext_lv3' in cfg.data.val.eval_list:
+        validation_data['satext_lv3']=load_val_data(cfg.data.val.satext_lv3)
+    if 'satext_lv2' in cfg.data.val.eval_list:
+        validation_data['satext_lv2']=load_val_data(cfg.data.val.satext_lv2)
+    if 'satext_lv1' in cfg.data.val.eval_list:
+        validation_data['satext_lv1']=load_val_data(cfg.data.val.satext_lv1)
+
+    return train_loader, validation_data
 
 
 
@@ -165,11 +270,6 @@ def load_model(cfg, accelerator):
     noise_scheduler_copy = copy.deepcopy(noise_scheduler)
     models['noise_scheduler'] = noise_scheduler
     models['noise_scheduler_copy'] = noise_scheduler_copy
-
-    # load transformer 
-    transformer = SD3Transformer2DModel.from_pretrained_local(cfg.ckpt.init_path.dit, subfolder="transformer", revision=None, variant=None)
-    transformer.requires_grad_(False)
-    models['transformer'] = transformer
 
     # load tokenizer 
     tokenizer_one = CLIPTokenizer.from_pretrained(
@@ -211,27 +311,30 @@ def load_model(cfg, accelerator):
     models['tokenizers'] = tokenizers 
     models['text_encoders'] = text_encoders 
 
+
+    # load image restoration module 
+    if 'dit4sr' in cfg.train.model:
+        # load transformer 
+        transformer = SD3Transformer2DModel.from_pretrained_local(cfg.ckpt.init_path.dit, subfolder="transformer", revision=None, variant=None)
+        transformer.requires_grad_(False)
+        models['transformer'] = transformer
+
     # load ts module 
-    if cfg.train.finetune_model == 'dit4sr_testr':
+    if 'testr' in cfg.train.model:
         from testr.adet.modeling.transformer_detector import TransformerDetector
         from testr.adet.config import get_cfg
-
         # get testr config
         config_testr = get_cfg()
         config_testr.merge_from_file('./testr/configs/TESTR/TESTR_R_50_Polygon.yaml')
         config_testr.freeze()
-
         # load testr model
         detector = TransformerDetector(config_testr)
-
         # load testr pretrained weights
         ckpt = torch.load(cfg.ckpt.init_path.ts_module, map_location="cpu")
         load_result = detector.load_state_dict(ckpt['model'], strict=False)
-        
         if accelerator.is_main_process:
             print("Loaded Initial TESTR checkpoint keys:")
             print(" - Initial Missing keys:", load_result.missing_keys)
-
         models['testr'] = detector.train()
 
 
@@ -255,14 +358,24 @@ def load_model_params(cfg, models):
     train_param_count=0
     frozen_param_count=0
 
-    for name, param in models['transformer'].named_parameters():
-        numel = param.numel()
-        tot_param_count += numel
-        tot_param_names.append(name)
+    # load image restoration module 
+    if 'dit4sr' in cfg.train.model:
+        for name, param in models['transformer'].named_parameters():
+            numel = param.numel()
+            tot_param_count += numel
+            tot_param_names.append(name)
 
-        # dit4sr baseline (training only the lr branch)
-        if cfg.train.finetune_method == 'dit4sr_lr_branch':
-            if 'control' in name:
+
+            train_this_param = False
+            # train lr branch
+            if ('lrbranch' in cfg.train.finetune) and ('control' in name):
+                train_this_param = True 
+            # train all attention layers
+            if ('attns' in cfg.train.finetune) and ('attn' in name):
+                train_this_param = True 
+            
+
+            if train_this_param:
                 param.requires_grad = True
                 train_param_count += numel
                 train_param_names.append(name)
@@ -270,13 +383,31 @@ def load_model_params(cfg, models):
                 param.requires_grad = False
                 frozen_param_count += numel
                 frozen_param_names.append(name)
-        
 
-        # other method
-        elif cfg.train.finetune_method == 'add other':
-            pass
-    
-    if cfg.train.finetune_model == 'dit4sr_testr':
+            # # dit4sr baseline (training only the lr branch)
+            # if 'lrbranch' in cfg.train.finetune:
+            #     if 'control' in name:
+            #         param.requires_grad = True
+            #         train_param_count += numel
+            #         train_param_names.append(name)
+            #     else:
+            #         param.requires_grad = False
+            #         frozen_param_count += numel
+            #         frozen_param_names.append(name)
+            
+            # if 'attns' in cfg.train.finetune:
+            #     if 'attn' in name:
+            #         param.requires_grad = True
+            #         train_param_count += numel
+            #         train_param_names.append(name)
+            #     else:
+            #         param.requires_grad = False
+            #         frozen_param_count += numel
+            #         frozen_param_names.append(name)
+
+
+    # load text spotting module 
+    if 'testr' in cfg.train.model:
         for name, param in models['testr'].named_parameters():
             # Count total parameters
             numel = param.numel()
@@ -287,7 +418,6 @@ def load_model_params(cfg, models):
             param.requires_grad = True
             train_param_count += numel
             train_param_names.append(f"testr.{name}")
-            
 
 
     model_params = {}
@@ -305,28 +435,21 @@ def load_model_params(cfg, models):
 
 def load_optim(cfg, accelerator, models):
 
-    # scale lr
-    if cfg.train.scale_lr:
-        cfg.train.learning_rate.dit = (cfg.train.learning_rate.dit * cfg.train.gradient_accumulation_steps * cfg.train.batch_size * accelerator.num_processes)
+    # # scale lr
+    # if cfg.train.scale_lr:
+    #     cfg.train.learning_rate.dit = (cfg.train.learning_rate.dit * cfg.train.gradient_accumulation_steps * cfg.train.batch_size * accelerator.num_processes)
 
     # setup optimizer class
     optimizer_class = bnb.optim.AdamW8bit if cfg.train.use_8bit_adam else torch.optim.AdamW
 
+    param_groups=[]
+    if 'dit4sr' in cfg.train.model:
+        transformer_params = list(filter(lambda p: p.requires_grad, models['transformer'].parameters()))
+        param_groups.append({"params": transformer_params, "lr": cfg.train.lr[0]})
 
-    # separate trainable parameters
-    transformer_params = list(filter(lambda p: p.requires_grad, models['transformer'].parameters()))
-    testr_params = list(filter(lambda p: p.requires_grad, models['testr'].parameters()))
-
-    # define parameter groups with different LRs
-    param_groups = [
-        {"params": transformer_params, "lr": cfg.train.learning_rate.dit},
-        {"params": testr_params, "lr": cfg.train.learning_rate.ts_module},
-    ]
-
-    # # define parameter groups with different LRs
-    # param_groups = [
-    #     {"params": testr_params, "lr": cfg.train.learning_rate.ts_module},
-    # ]
+    if 'testr' in cfg.train.model:
+        testr_params = list(filter(lambda p: p.requires_grad, models['testr'].parameters()))
+        param_groups.append({"params": testr_params, "lr": cfg.train.lr[1]})
 
     # optimizer
     optimizer = optimizer_class(
@@ -351,7 +474,7 @@ def load_optim(cfg, accelerator, models):
     return optimizer
 
 
-def load_trackers(cfg, accelerator):
+def load_trackers(cfg, accelerator, exp_name):
     # We need to initialize the trackers we use, and also store our configuration.
     # The trackers initializes automatically on the main process.
     if accelerator.is_main_process:
@@ -361,9 +484,10 @@ def load_trackers(cfg, accelerator):
             config=argparse.Namespace(**OmegaConf.to_container(cfg, resolve=True)),
             init_kwargs={
                     'wandb':{
-                        'name': cfg.log.tracker.run_name,}
+                        'name': f'TRAIN_serv{str(cfg.log.tracker.server)}gpu{str(cfg.log.tracker.gpu)}_{exp_name}',}
                 }
         )
+        
 
 
 

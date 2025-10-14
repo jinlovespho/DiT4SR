@@ -87,14 +87,31 @@ class TESTR(nn.Module):
         #     for i in range(len(num_channels))
         # ])
 
-        num_channels = [384, 384, 384, 384]
+
+        # num_channels = [384, 384, 384, 384]
+        # self.diff_feat_proj = nn.ModuleList([
+        #     nn.Sequential(
+        #         nn.Conv2d(num_channels[i], self.d_model, kernel_size=1),     # 1x1 projection
+        #         nn.GroupNorm(32, self.d_model),
+        #         nn.GELU(),
+
+        #         nn.Conv2d(self.d_model, self.d_model, kernel_size=3, padding=1),  # 3x3 conv
+        #         nn.GroupNorm(32, self.d_model),
+        #         nn.GELU(),
+        #     )
+        #     for i in range(len(num_channels))
+        # ])
+
+        num_channels = [2304, 2304, 2304, 2304]
         self.diff_feat_proj = nn.ModuleList([
             nn.Sequential(
-                nn.Conv2d(num_channels[i], self.d_model, kernel_size=1),     # 1x1 projection
+                nn.Conv2d(2304, 1024, kernel_size=1),
+                nn.GroupNorm(32, 1024),
+                nn.GELU(),
+                nn.Conv2d(1024, self.d_model, kernel_size=1),
                 nn.GroupNorm(32, self.d_model),
                 nn.GELU(),
-
-                nn.Conv2d(self.d_model, self.d_model, kernel_size=3, padding=1),  # 3x3 conv
+                nn.Conv2d(self.d_model, self.d_model, kernel_size=3, padding=1),
                 nn.GroupNorm(32, self.d_model),
                 nn.GELU(),
             )
@@ -135,10 +152,18 @@ class TESTR(nn.Module):
         
         srcs = []
         masks = []
-        for l, feat in enumerate(extracted_feats):
-            b, _, feat_H, feat_W = feat.shape
-            srcs.append(self.diff_feat_proj[l](feat))
-            masks.append(torch.zeros(b, feat_H, feat_W).to(bool).to(feat.device))
+
+        num_feats = len(extracted_feats)
+        num_idx_range = num_feats//4
+        
+        for l in range(4):
+            start_idx = num_idx_range*l
+            end_idx = num_idx_range*(l+1)
+            feats = torch.concat(extracted_feats[start_idx:end_idx], dim=1)
+            b, _, feat_H, feat_W = feats.shape
+            srcs.append(self.diff_feat_proj[l](feats))
+            masks.append(torch.zeros(b, feat_H, feat_W).to(bool).to(feats.device))
+
 
         ctrl_point_embed = self.ctrl_point_embed.weight[None, ...].repeat(self.num_proposals, 1, 1)                     
         text_pos_embed = self.text_pos_embed(self.text_embed.weight)[None, ...].repeat(self.num_proposals, 1, 1)        

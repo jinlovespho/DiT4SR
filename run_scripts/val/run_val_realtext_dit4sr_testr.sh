@@ -3,7 +3,7 @@
 CUDA="5"
 NUM_GPU=1
 
-CUDA_VISIBLE_DEVICES=${CUDA} accelerate launch --num_processes ${NUM_GPU} test/test_wllava.py \
+CUDA_VISIBLE_DEVICES=${CUDA} accelerate launch --num_processes ${NUM_GPU} test/test.py \
     --config run_configs/val/val_realtext_dit4sr_testr.yaml
 
 

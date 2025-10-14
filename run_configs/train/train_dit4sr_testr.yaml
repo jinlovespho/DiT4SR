@@ -5,23 +5,41 @@ init:
 
 
 data:
-  name: satext
-  satext:  
-    data_path: /mnt/dataset1/text_restoration/100K
-    hq_prompt_path: /mnt/dataset1/text_restoration/100K/dit4sr/data/train/llava13b_hq_prompt
-    hq_val_prompt_path: /mnt/dataset1/text_restoration/100K/dit4sr/data/val/llava13b_hq_prompt
-    null_text_ratio: 0.0
-    val_num_img: 20
+  train:
+    name: satext
+    hq_img_path: /mnt/dataset1/text_restoration/100K/train
+    ann_path: /mnt/dataset1/text_restoration/100K/train/dataset.json
+    # hq_prompt_path: /mnt/dataset1/text_restoration/100K/dit4sr/data/train/llava13b_hq_prompt
+    hq_prompt_path: 
+    null_text_ratio: 0.0 
 
   val:
-    name: realtext
-    lq_image_path: /media/dataset2/text_restoration/tair_published/real_text/LQ
-    gt_image_path: /media/dataset2/text_restoration/tair_published/real_text/HQ
-    ann_path: /media/dataset2/text_restoration/tair_published/real_text/realtext_ann.json
-    use_precomputed_prompts: results/realtext/dit4sr_q_wllava/txt
-    captioner: llava
-    captioner_size: 
-    saved_caption_path: 
+    eval_list: [realtext, satext_lv3, satext_lv2, satext_lv1]
+
+    realtext:
+      lq_img_path: /mnt/dataset1/text_restoration/tair_published/real_text/LQ
+      hq_img_path: /mnt/dataset1/text_restoration/tair_published/real_text/HQ
+      ann_path: /mnt/dataset1/text_restoration/tair_published/real_text/realtext_ann.json
+      val_num_img: 15
+
+    satext_lv3:
+      lq_img_path: /mnt/dataset1/text_restoration/SAMText_test_degradation/lv3
+      hq_img_path: /mnt/dataset1/text_restoration/100K/test
+      ann_path: /mnt/dataset1/text_restoration/100K/test/dataset.json
+      val_num_img: 15
+  
+    satext_lv2:
+      lq_img_path: /mnt/dataset1/text_restoration/SAMText_test_degradation/lv2
+      hq_img_path: /mnt/dataset1/text_restoration/100K/test
+      ann_path: /mnt/dataset1/text_restoration/100K/test/dataset.json
+      val_num_img: 15
+
+    satext_lv1:
+      lq_img_path: /mnt/dataset1/text_restoration/SAMText_test_degradation/lv1
+      hq_img_path: /mnt/dataset1/text_restoration/100K/test
+      ann_path: /mnt/dataset1/text_restoration/100K/test/dataset.json
+      val_num_img: 15
+
     use_satext_gtprompt:
     use_nullprompt: True
     added_prompt: "Cinematic, hyper sharpness, highly detailed, perfect without deformations, camera, hyper detailed photo - realistic maximum detail, 32k, Color Grading, ultra HD, extreme meticulous detailing, skin pore detailing." 
@@ -29,8 +47,7 @@ data:
     save_prompts: True
     sample_times: 1
     guidance_scale: 1.0
-    # start_point: noise
-    start_point: lr 
+    start_point: lr
     latent_tiled_size: 64
     latent_tiled_overlap: 24
     upscale: 4
@@ -71,9 +88,10 @@ ckpt:
 
 
 train:
-  finetune_model: dit4sr_testr 
-  finetune_method: dit4sr_lr_branch
-  batch_size: 3
+  model: ["dit4sr", "testr"]
+  lr: [1e-5, 1e-4]
+  finetune: [lrbranch, attns]
+  batch_size: 1
   num_workers: 4
   num_train_epochs: 300
   max_train_steps: 
@@ -85,31 +103,24 @@ train:
   max_grad_norm: 1.0
   set_grads_to_none: False
   gradient_checkpointing: True
-  gradient_accumulation_steps: 4
+  gradient_accumulation_steps: 8
   scale_lr: False
   use_8bit_adam: False
-  learning_rate:
-    dit: 1e-5
-    ts_module: 1e-4
+  # ocr_loss_weight: 0.0
   ocr_loss_weight: 0.01
   # ocr_loss_weight: 0.1
   # ocr_loss_weight: 0.005
 
 
 val:
-  batch_size: 1
-  num_workers: 4
-  val_every_step: 5000
-  log_train_ocr_result_every: -1
+  val_every_step: 500
+
 
 
 
 save:
-  # output_dir: ./result_train/dit4sr_testr_llava13b
-  output_dir: ./result_train/serv12gpu0_fp16_satext_dit4sr_lr1e5_testr_lr1e4_bs3_gradaccum4_gtprompt_ocrloss001
-  # output_dir: ./result_train/serv12gpu1_fp16_satext_dit4sr_lr1e5_testr_lr1e4_bs3_gradaccum4_gtprompt_ocrloss01
-  # output_dir: ./result_train/serv12gpu1_fp16_satext_dit4sr_lr1e5_testr_lr1e4_bs3_gradaccum4_gtprompt_ocrloss0005
-  checkpointing_steps: 5000
+  output_dir: ./result_train
+  checkpointing_steps: 2000
 
 
 log:
@@ -117,8 +128,8 @@ log:
     report_to: wandb 
     key: e32eed0c2509bf898b850b0065ab62345005fb73
     project_name: cvpr26_tair_extension
-    # project_name: iclr26_tair_vlm
-    run_name: TRAIN_serv12gpu0_fp16_satext_dit4sr_lr1e-5_testr_lr1e-4_bs3_gradaccum4_gtprompt_ocrloss0.01
-    # run_name: TRAIN_serv12gpu1_fp16_satext_dit4sr_lr1e-5_testr_lr1e-4_bs3_gradaccum4_gtprompt_ocrloss0.1
-    # run_name: TRAIN_serv12gpu1_fp16_satext_dit4sr_lr1e-5_testr_lr1e-4_bs3_gradaccum4_gtprompt_ocrloss0.005
+    server: 20
+    gpu: 2
+    # msg: DiTfeat4
+    msg: DiTfeat24
   log_dir: logs

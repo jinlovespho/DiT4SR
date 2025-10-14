@@ -1041,7 +1041,7 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
 
             # save prompt
             if self.cfg.data.val.save_prompts:
-                txt_save_path = f"{self.cfg.save.output_dir}/{self.cfg.log.tracker.run_name}/final_pred_txt"
+                txt_save_path = f"{self.cfg.save.output_dir}/{self.cfg.exp_name}/{kwargs['val_data_name']}/final_pred_txt"
                 os.makedirs(txt_save_path, exist_ok=True)
                 if train_glob_step is not None:
                     txt_file = f"{txt_save_path}/{kwargs['lq_id']}_step{train_glob_step:09d}.txt"
@@ -1092,7 +1092,7 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
                     noise_pred = trans_out[0]
 
                     # ts module forward pass 
-                    if self.cfg.train.finetune_model == 'dit4sr_testr':
+                    if 'testr' in self.cfg.train.model:
                         if len(trans_out) > 1:
                             etc_out = trans_out[1]
                             # unpatchify
@@ -1123,7 +1123,7 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
                             pred_prompt = [f"{', '.join(ts_pred_text)}"]
                             print(f"iter: {i:02d} | timestep: {t.item():8.2f} | text prompt: {pred_prompt}")
 
-                            if self.cfg.train.finetune_model == 'dit4sr_testr':
+                            if 'testr' in self.cfg.train.model:
                                 if self.cfg.data.val.save_prompts:
                                     with open(txt_file, "a") as f:
                                         f.write(f"iter: {i:02d}   |   timestep: {t.item():8.2f}   |   text prompt: {pred_prompt}\n")
@@ -1315,7 +1315,7 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
 
 
         if not return_dict:
-            if self.cfg.train.finetune_model == 'dit4sr_testr':
+            if 'testr' in self.cfg.train.model:
                 return (image, val_ocr_result)
             else:
                 return (image,)

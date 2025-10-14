@@ -54,12 +54,13 @@ class PhoRealESRGANDataset(data.Dataset):
 
         opt = {}
         opt['data_name'] = args.name
-        opt['data_path'] = args.satext.data_path
-        opt['hq_prompt_path'] = args.satext.hq_prompt_path
-        opt['hq_val_prompt_path'] = args.satext.hq_val_prompt_path
+        opt['hq_img_path'] = args.hq_img_path
+        opt['ann_path'] = args.ann_path
+        opt['hq_prompt_path'] = args.hq_prompt_path
+        # opt['hq_val_prompt_path'] = args.hq_val_prompt_path
         # opt['lq_prompt_path'] = args.lq_prompt_path 
-        opt['null_text_ratio'] = args.satext.null_text_ratio
-        opt['val_num_img'] = args.satext.val_num_img     
+        opt['null_text_ratio'] = args.null_text_ratio
+        # opt['val_num_img'] = args.satext.val_num_img     
         # opt['gt_path'] = args.data_path
         opt['queue_size'] = 160
         opt['crop_size'] =  512
@@ -107,10 +108,6 @@ class PhoRealESRGANDataset(data.Dataset):
             from dataloaders.utils import load_data_files
             self.paths = load_data_files(opt, mode)
             self.null_text_ratio = opt['null_text_ratio']
-
-        if 'hq_path' in opt:
-            self.paths.extend(sorted(glob.glob(f"{opt['hq_path']}/{mode}/*.jpg")))
-
 
         if 'gt_path' in opt:    
             if isinstance(opt['gt_path'], str):

@@ -55,49 +55,47 @@ def load_data_files(opt, mode):
 
     files = []
 
-    data_path = opt['data_path']
+    data_path = opt['hq_img_path']
     model_H, model_W = 512, 512 
 
     # load imgs
-    imgs_path = sorted(glob.glob(f'{data_path}/{mode}/*.jpg'))
+    hq_imgs_path = sorted(glob.glob(f'{data_path}/*.jpg'))
     
     # load precomputed prompts 
-    if mode == 'train':
+    if opt['hq_prompt_path'] is not None:   
         prompt_path = opt['hq_prompt_path']
-    elif mode == 'val':
-        prompt_path = opt['hq_val_prompt_path']
-    hq_prompts_path = sorted(glob.glob(f"{prompt_path}/*.txt"))
+        hq_prompts_path = sorted(glob.glob(f"{prompt_path}/*.txt"))
     # lq_prompts_path = sorted(glob.glob(f"{opt['lq_prompt_path']}/*.txt"))
 
     # load anns
-    ann_path = f"{data_path}/{mode}/dataset.json" 
+    ann_path = opt['ann_path']
     with open(ann_path, 'r') as f:
         anns = json.load(f)
         anns = sorted(anns.items())
     
-    data_files = zip(imgs_path, hq_prompts_path, anns)
-    for data_idx, (img_path, hq_prompt_path, ann) in enumerate(data_files):
+    data_files = zip(hq_imgs_path, anns)
+    for data_idx, (hq_img_path, ann) in enumerate(data_files):
 
-        # safety check
-        img_id = img_path.split('/')[-1].split('.')[0]
-        prompt_id = hq_prompt_path.split('/')[-1].split('.')[0]
+        img_id = hq_img_path.split('/')[-1].split('.')[0]
         ann_id = ann[0]
-        if not img_id == prompt_id == ann_id:
-            continue
-        assert img_id == prompt_id == ann_id, 'img_id != ann_id'
+        assert img_id == ann_id
+
+        if opt['hq_prompt_path'] is not None:   
+            hq_prompt_path = hq_prompts_path[data_idx]
+            prompt_id = hq_prompt_path.split('/')[-1].split('.')[0]
+            assert prompt_id == img_id
+            # process hq prompt 
+            with open(hq_prompt_path, 'r') as prompt_file:
+                hq_prompt = prompt_file.read().strip()  # strip() removes extra newlines/whitespace
+        else:
+            hq_prompt=None
+
         
         boxes=[]
         texts=[]
         text_encs=[]
         polys=[]
 
-        # process hq prompt 
-        with open(hq_prompt_path, 'r') as prompt_file:
-            hq_prompt = prompt_file.read().strip()  # strip() removes extra newlines/whitespace
-        
-        # # process lq prompt 
-        # with open(lq_prompt_path, 'r') as prompt_file:
-        #     lq_prompt = prompt_file.read().strip()  # strip() removes extra newlines/whitespace
         
         # process anns
         img_anns = ann[1]['0']['text_instances']
@@ -156,7 +154,7 @@ def load_data_files(opt, mode):
         if len(boxes) == 0 or len(polys) == 0:
             continue
 
-        files.append({  "img_path": img_path, 
+        files.append({  "img_path": hq_img_path, 
                         "text": texts, 
                         'hq_prompt': hq_prompt,
                         # 'lq_prompt': lq_prompt,
@@ -166,8 +164,8 @@ def load_data_files(opt, mode):
                         "img_id": img_id})     
 
     
-    if mode=='val':
-        files = random.sample(files, opt['val_num_img'])
+    # if mode=='val':
+    #     files = random.sample(files, opt['val_num_img'])
 
     return files
 

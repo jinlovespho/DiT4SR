@@ -1,21 +1,96 @@
+
+
+##  ⚒️ Training Preparation
+
+### Environment
+```
+conda create -n dit4sr python=3.10 -y
+conda activate dit4sr
+```
+
+### Installation
+```
+pip install torch==2.2.2 torchvision==0.17.2 torchaudio==2.2.2 --index-url https://download.pytorch.org/whl/cu121
+pip install -r requirements.txt
+cd detectron2 
+pip install -e .
+cd testr 
+pip install -e .
+```
+
+### Download Pretrained Weights and Dataset
+
+1. Run the bash script `download_weights.sh` to download the pretrained weights for the image restoration module.  
+   Additionally, download the pretrained text spotting module from [this link](https://ucsdcloud-my.sharepoint.com/:u:/g/personal/xiz102_ucsd_edu/ESwSFxppsplEiEaUphJB0TABkIKoRvIljkVIazPUNEXI7g?e=Q8zJ0Q) and place it in the `./weights` directory.
+
+2. Download the SA-Text dataset using the **Google Drive** link provided above.
+   Once downloaded, unzip the contents and place the folder in your working directory.
 ---
-license: other
-license_name: pi-lab-license-1.0
-license_link: LICENSE
-pipeline_tag: image-to-image
-library_name: diffusers
----
 
-# DiT4SR: Taming Diffusion Transformer for Real-World Image Super-Resolution
+## 🔥 Training Recipe
+Our text-aware restoration model, **TeReDiff**, comprises two main modules: an image restoration module and a text spotting module. 
+Training is conducted in three stages:
+- **Stage 1**: Train only the image restoration module.
+- **Stage 2**: Train only the text spotting module.
+- **Stage 3**: Jointly train both modules.
 
-This repository contains the official model checkpoint for the paper [DiT4SR: Taming Diffusion Transformer for Real-World Image Super-Resolution](https://arxiv.org/abs/2503.23580).
 
-**Project Page:** [https://adam-duan.github.io/projects/dit4sr/](https://adam-duan.github.io/projects/dit4sr/)
+### Training Script
 
-## Abstract
+- Run the following bash script for **Stage1** training. Its configuration file can be found [here](configs/train/train_stage1_terediff.yaml). Refer to the comments within the configuration file for a detailed explanation of each setting.
 
-Large-scale pre-trained diffusion models are becoming increasingly popular in solving the Real-World Image Super-Resolution (Real-ISR) problem because of their rich generative priors. The recent development of diffusion transformer (DiT) has witnessed overwhelming performance over the traditional UNet-based architecture in image generation, which also raises the question: Can we adopt the advanced DiT-based diffusion model for Real-ISR? To this end, we propose our DiT4SR, one of the pioneering works to tame the large-scale DiT model for Real-ISR. Instead of directly injecting embeddings extracted from low-resolution (LR) images like ControlNet, we integrate the LR embeddings into the original attention mechanism of DiT, allowing for the bidirectional flow of information between the LR latent and the generated latent. The sufficient interaction of these two streams allows the LR stream to evolve with the diffusion process, producing progressively refined guidance that better aligns with the generated latent at each diffusion step. Additionally, the LR guidance is injected into the generated latent via a cross-stream convolution layer, compensating for DiT's limited ability to capture local information. These simple but effective designs endow the DiT model with superior performance in Real-ISR, which is demonstrated by extensive experiments.
+```
+bash run_script/train_script/run_train_stage1_terediff.sh
+```
+- Run the following bash script for **Stage2** training. Its configuration file can be found [here](configs/train/train_stage2_terediff.yaml)
 
-## Usage
+```
+bash run_script/train_script/run_train_stage2_terediff.sh
+```
+- Run the following bash script for **Stage3** training. Its configuration file can be found [here](configs/train/train_stage3_terediff.yaml)
 
-DiT4SR is built using the Diffusers library. For detailed usage instructions, including how to load the model and run inference for super-resolution, please refer to the [official project page](https://adam-duan.github.io/projects/dit4sr/).
+```
+bash run_script/train_script/run_train_stage3_terediff.sh
+```
+
+## 🚀 Text-Aware Image Restoration (TAIR) Demo
+
+
+### Demo Script
+
+Download the released checkpoint of our model (**TeReDiff**) from [here](https://drive.google.com/drive/folders/1Xn0DaL-3ViXpl1pWHPvcmSejTDoIjAQn?usp=drive_link), and set the appropriate parameters in the demo configuration file [here](configs/val/val_terediff.yaml). Then, run the script below to perform a demo on low-quality images and generate high-quality, text-aware restored outputs. The results will be saved in **val_demo_result/** by default.
+
+```
+bash run_script/val_script/run_val_terediff.sh
+```
+
+### TAIR Demo Results 
+Running the demo script above will generate the following restoration results. The visualized images are shown in the order: **Low-Quality (LQ) image / Restored image / High-Quality (HQ) Ground Truth image**. Note that when the text in the LQ images is severely degraded, the model may fail to accurately restore the textual content due to insufficient visual information.
+
+
+<p align="center">
+  <img src="assets/demo_imgs/restored/restored_sa_922529_crop_0_concat.png" width="800">
+</p>
+<p align="center">
+  <img src="assets/demo_imgs/restored/restored_sa_924654_crop_0_concat.png" width="800">
+</p>
+<p align="center">
+  <img src="assets/demo_imgs/restored/restored_sa_965829_crop_1_concat.png" width="800">
+</p>
+<p align="center">
+  <img src="assets/demo_imgs/restored/restored_sa_991053_crop_0_concat.png" width="800">
+</p>
+
+
+## Citation
+
+If you find our work useful for your research, please consider citing it :)
+
+```
+@article{min2025text,
+  title={Text-Aware Image Restoration with Diffusion Models},
+  author={Min, Jaewon and Kim, Jin Hyeon and Cho, Paul Hyunbin and Lee, Jaeeun and Park, Jihye and Park, Minkyu and Kim, Sangpil and Park, Hyunhee and Kim, Seungryong},
+  journal={arXiv preprint arXiv:2506.09993},
+  year={2025}
+}
+```

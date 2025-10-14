@@ -22,9 +22,7 @@ assert len(pred_txts) == len(gt_txts), 'check number of pred and gt txts!'
 # gt_txts = gt_txts[:3]
 
 # all 50 steps
-# timesteps = [999, 979, 958, 938, 917, 897, 877, 856, 836, 816, 795, 775, 754, 734, 714, 693, 673, 652, 632, 612, 591, 571, 550, 530, 510, 489, 469, 449, 428, 408, 387, 367, 347, 326, 306, 285, 265, 245, 224, 204, 183, 163, 143, 122, 102, 82, 61, 41, 20, 0]
-# timesteps = [999, 958, 917, 877, 836, 795, 754, 714, 673, 632, 591, 550, 510, 469, 428, 387, 347, 306, 265, 224, 183, 143, 102, 61, 20]
-timesteps = [754, 714, 673, 632, 591, 550]
+timesteps = [999, 979, 958, 938, 917, 897, 877, 856, 836, 816, 795, 775, 754, 734, 714, 693, 673, 652, 632, 612, 591, 571, 550, 530, 510, 489, 469, 449, 428, 408, 387, 367, 347, 326, 306, 285, 265, 245, 224, 204, 183, 163, 143, 122, 102, 82, 61, 41, 20, 0]
 
 for t in timesteps:
 
@@ -79,7 +77,10 @@ for t in timesteps:
 
         gt_text = gt_dict[t]
         vlm_output = pred_dict[t]
+
         
+        
+
         # prepare the model input
         prompt = f"""
         Ground truth text: "{gt_text}"
@@ -99,6 +100,8 @@ for t in timesteps:
 
         Answer with only the category number (1, 2, or 3).
         """
+
+
         messages = [
             {"role": "user", "content": prompt}
         ]
