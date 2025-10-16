@@ -57,6 +57,7 @@ data:
     align_method: adain
     
 
+
 model:
   noise_scheduler:
     weighting_scheme: logit_normal
@@ -91,14 +92,15 @@ ckpt:
 
 
 train:
-  model: ["dit4sr", "testr"]
-  lr: [1e-5, 1e-4]
+  model: ["dit4sr"]
+  lr: [1e-5]
   finetune: [lrbranch, attns]
   batch_size: 1
   num_workers: 4
   num_train_epochs: 300
   max_train_steps: 
   mixed_precision: 'fp16'
+  # mixed_precision: 'no'
   lr_scheduler: "constant"
   lr_warmup_steps: 0
   lr_num_cycles: 1
@@ -109,11 +111,8 @@ train:
   gradient_accumulation_steps: 8
   scale_lr: False
   use_8bit_adam: False
-  # ocr_loss_weight: 0.0
-  ocr_loss_weight: 0.01
-  # ocr_loss_weight: 0.1
-  # ocr_loss_weight: 0.005
-  
+  ocr_loss_weight: 
+
 
 val:
   val_every_step: 500
@@ -130,7 +129,7 @@ log:
     key: e32eed0c2509bf898b850b0065ab62345005fb73
     project_name: cvpr26_tair_extension
     server: 20
-    gpu: 4
-    # msg: DiTfeat4
+    gpu: 3
     msg: DiTfeat24
   log_dir: logs
+

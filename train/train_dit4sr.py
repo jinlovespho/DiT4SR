@@ -40,7 +40,7 @@ def main(cfg):
     
 
     # set experiment name
-    exp_name = f'{cfg.train.mixed_precision}_{"-".join(cfg.train.model)}_{"-".join(f"{lr:.0e}" for lr in cfg.train.lr)}_{"-".join(cfg.train.finetune)}_ocrloss{cfg.train.ocr_loss_weight}_msg{cfg.log.tracker.msg}'
+    exp_name = f'{cfg.train.mixed_precision}_{"-".join(cfg.train.model)}_{"-".join(f"{lr:.0e}" for lr in cfg.train.lr)}_{"-".join(cfg.train.finetune)}_ocrloss{cfg.train.ocr_loss_weight}_{cfg.model.dit.text_condition.caption_style}_msg{cfg.log.tracker.msg}'
     cfg.exp_name = exp_name
 
 
@@ -151,44 +151,69 @@ def main(cfg):
     ocr_losses={}  
 
 
-    # Potentially load in the weights and states from a previous save
+    # Load previous trained ckpts
     if cfg.ckpt.resume_path.dit is not None:
-        if cfg.ckpt.resume_path.dit != "latest":
-            path = os.path.basename(cfg.ckpt.resume_path.dit)
-        else:
-            # Get the most recent checkpoint
-            dirs = os.listdir(f'{cfg.save.output_dir}/{exp_name}')
-            dirs = [d for d in dirs if d.startswith("checkpoint")]
-            dirs = sorted(dirs, key=lambda x: int(x.split("-")[1]))
-            path = dirs[-1] if len(dirs) > 0 else None
-
-        if path is None:
-            accelerator.print(
-                f"Checkpoint '{cfg.ckpt.resume_path.dit}' does not exist. Starting a new training run."
-            )
-            cfg.ckpt.resume_path.dit = None
-            initial_global_step = 0
-        else:
-            # load transformer ckpt
-            accelerator.print(f"Resuming from checkpoint {path}")
-            resume_path = os.path.join(cfg.save.output_dir, exp_name, path)
-            accelerator.load_state(resume_path)
-            
-            # load ts_module ckpt
-            if 'testr' in cfg.train.model:
-                ts_ckpt_path = os.path.join(resume_path, f"ts_module{int(path.split('-')[-1]):07d}.pt")
-                ckpt = torch.load(ts_ckpt_path, map_location="cpu")
-                load_result = models['testr'].load_state_dict(ckpt['ts_module'], strict=False)
-                print("Loaded TESTR checkpoint keys:")
-                print(" - Missing keys:", load_result.missing_keys)
-                print(" - Unexpected keys:", load_result.unexpected_keys)
-
-            global_step = int(path.split("-")[1])
-
-            initial_global_step = global_step
-            first_epoch = global_step // num_update_steps_per_epoch
+        resume_path = cfg.ckpt.resume_path.dit
+        num_ckpt = resume_path.split('/')[-1].split('-')[-1]
+        accelerator.print(f"Resuming from checkpoint {resume_path}")
+        accelerator.load_state(resume_path)
+        # load ts_module ckpt
+        if 'testr' in cfg.train.model:
+            ts_ckpt_path = os.path.join(resume_path, f"ts_module{int(num_ckpt):07d}.pt")
+            ckpt = torch.load(ts_ckpt_path, map_location="cpu")
+            load_result = models['testr'].load_state_dict(ckpt['ts_module'], strict=False)
+            print("Loaded TESTR checkpoint keys:")
+            print(" - Missing keys:", load_result.missing_keys)
+            print(" - Unexpected keys:", load_result.unexpected_keys)
+        # resume global step
+        global_step = int(num_ckpt)
+        initial_global_step = global_step
+        first_epoch = global_step // num_update_steps_per_epoch
     else:
+        accelerator.print(f"Checkpoint '{cfg.ckpt.resume_path.dit}' does not exist. Starting a new training run.")
+        cfg.ckpt.resume_path.dit = None
         initial_global_step = 0
+
+        
+
+
+    #     if cfg.ckpt.resume_path.dit != "latest":
+    #         path = os.path.basename(cfg.ckpt.resume_path.dit)
+    #     else:
+    #         # Get the most recent checkpoint
+    #         dirs = os.listdir(f'{cfg.save.output_dir}/{exp_name}')
+    #         dirs = [d for d in dirs if d.startswith("checkpoint")]
+    #         dirs = sorted(dirs, key=lambda x: int(x.split("-")[1]))
+    #         path = dirs[-1] if len(dirs) > 0 else None
+
+    #     if path is None:
+    #         accelerator.print(
+    #             f"Checkpoint '{cfg.ckpt.resume_path.dit}' does not exist. Starting a new training run."
+    #         )
+    #         cfg.ckpt.resume_path.dit = None
+    #         initial_global_step = 0
+    #     else:
+    #         breakpoint()
+    #         # load transformer ckpt
+    #         accelerator.print(f"Resuming from checkpoint {path}")
+    #         resume_path = os.path.join(cfg.save.output_dir, exp_name, path)
+    #         accelerator.load_state(resume_path)
+            
+    #         # load ts_module ckpt
+    #         if 'testr' in cfg.train.model:
+    #             ts_ckpt_path = os.path.join(resume_path, f"ts_module{int(path.split('-')[-1]):07d}.pt")
+    #             ckpt = torch.load(ts_ckpt_path, map_location="cpu")
+    #             load_result = models['testr'].load_state_dict(ckpt['ts_module'], strict=False)
+    #             print("Loaded TESTR checkpoint keys:")
+    #             print(" - Missing keys:", load_result.missing_keys)
+    #             print(" - Unexpected keys:", load_result.unexpected_keys)
+
+    #         global_step = int(path.split("-")[1])
+
+    #         initial_global_step = global_step
+    #         first_epoch = global_step // num_update_steps_per_epoch
+    # else:
+    #     initial_global_step = 0
 
 
     progress_bar = tqdm(range(0, tot_train_steps), initial=initial_global_step, desc="Steps", disable=not accelerator.is_local_main_process,)
@@ -233,8 +258,14 @@ def main(cfg):
                             hq_prompt = models['vlm_agent'].gen_image_caption(lq_tmp)
                             hq_prompt = [train_utils.remove_focus_sentences(p) for p in hq_prompt]
 
+                        # set prompt style
                         if cfg.model.dit.use_gtprompt:
-                            hq_prompt=[', '.join(words) for words in text]  # gt words using tag style
+                            if cfg.model.dit.text_condition.caption_style == 'descriptive':
+                                texts = [[f'"{t}"' for t in txt] for txt in text]
+                                hq_prompt = [f'The image features the texts {", ".join(txt)} that appear clearly on signs, boards, buildings, or other objects.' for txt in texts]
+                            elif cfg.model.dit.text_condition.caption_style == 'tag':
+                                texts = [[f'"{t}"' for t in txt] for txt in text]
+                                hq_prompt=[', '.join(words) for words in texts]  
 
                         # encode prompt 
                         prompt_embeds, pooled_prompt_embeds = encode_prompt(models['text_encoders'], models['tokenizers'], hq_prompt, 77)
@@ -371,20 +402,25 @@ def main(cfg):
                         # save transformer
                         save_path = os.path.join(cfg.save.output_dir, exp_name, f"checkpoint-{global_step}")
                         accelerator.save_state(save_path)
-                        # save ts_module
-                        ts_ckpt = {}
-                        ts_ckpt['ts_module'] = models['testr'].state_dict()
-                        ckpt_path = f"{save_path}/ts_module{global_step:07d}.pt"
-                        torch.save(ts_ckpt, ckpt_path)
+                        if 'testr' in cfg.train.model:
+                            # save ts_module
+                            ts_ckpt = {}
+                            ts_ckpt['ts_module'] = models['testr'].state_dict()
+                            ckpt_path = f"{save_path}/ts_module{global_step:07d}.pt"
+                            torch.save(ts_ckpt, ckpt_path)
                         logger.info(f"Saved state to {save_path}")
 
                     if global_step==1 or global_step % cfg.val.val_every_step == 0:
 
+                        if 'testr' in cfg.train.model:
+                            ts_module = models['testr'] 
+                        else:
+                            ts_module = None 
                         # Get the validation pipeline
                         val_pipeline = StableDiffusion3ControlNetPipeline(
                             vae=models['vae'], text_encoder=models['text_encoders'][0], text_encoder_2=models['text_encoders'][1], text_encoder_3=models['text_encoders'][2], 
                             tokenizer=models['tokenizers'][0], tokenizer_2=models['tokenizers'][1], tokenizer_3=models['tokenizers'][2], 
-                            transformer=models['transformer'], scheduler=models['noise_scheduler'], ts_module = models['testr'], cfg=cfg
+                            transformer=models['transformer'], scheduler=models['noise_scheduler'], ts_module=ts_module, cfg=cfg
                         )
 
                         metrics={}
@@ -403,6 +439,13 @@ def main(cfg):
 
                             for val_sample in val_data:
 
+                                # set seed
+                                if accelerator.is_main_process:
+                                    generator = torch.Generator(device=accelerator.device)
+                                    if cfg.init.seed is not None:
+                                        generator.manual_seed(cfg.init.seed)
+
+                                # get anns
                                 val_lq_path = val_sample['lq_path']
                                 val_hq_path = val_sample['hq_path']
                                 val_text = val_sample['text']
@@ -410,12 +453,13 @@ def main(cfg):
                                 val_polys = val_sample['poly']
                                 val_img_id = val_sample['img_id']
 
-
+                                # place lq on cuda
                                 val_lq = T.ToTensor()(Image.open(val_lq_path)).to(device=accelerator.device, dtype=weight_dtype).unsqueeze(dim=0)   # 1 3 128 128 
                                 val_lq = F.interpolate(val_lq, (512,512), mode='bilinear', align_corners=False) # 1 3 512 512 
                                 val_lq = (val_lq - val_lq.min()) / (val_lq.max() - val_lq.min() + 1e-8) # [0,1]
                                 val_lq = val_lq * 2. - 1.   # [-1,1]
-
+                                
+                                # place gt to cuda
                                 val_gt = T.ToTensor()(Image.open(val_hq_path)).to(device=accelerator.device, dtype=weight_dtype).unsqueeze(dim=0)   # 1 3 128 128 
                                 val_gt = (val_gt - val_gt.min()) / (val_gt.max() - val_gt.min() + 1e-8)
                                 val_gt = val_gt * 2. - 1.
@@ -423,24 +467,24 @@ def main(cfg):
                                 val_prompt = ['']
                                 neg_prompt = None 
 
-                                if accelerator.is_main_process:
-                                    generator = torch.Generator(device=accelerator.device)
-                                    if cfg.init.seed is not None:
-                                        generator.manual_seed(cfg.init.seed)
-
+                                # validation forward pass
                                 with torch.no_grad():
                                     val_out = val_pipeline(
                                         prompt=val_prompt, control_image=val_lq, num_inference_steps=cfg.data.val.num_inference_steps, generator=generator, height=height, width=width,
                                         guidance_scale=cfg.data.val.guidance_scale, negative_prompt=neg_prompt,
                                         start_point=cfg.data.val.start_point, latent_tiled_size=cfg.data.val.latent_tiled_size, latent_tiled_overlap=cfg.data.val.latent_tiled_overlap,
-                                        output_type = 'pt', return_dict=False, lq_id=val_img_id, val_data_name=val_data_name, global_step=global_step
+                                        output_type = 'pt', return_dict=False, lq_id=val_img_id, val_data_name=val_data_name, global_step=global_step, cfg=cfg, mode='train'
                                     )
+                                
+                                # retrive validation results
                                 val_restored_img = val_out[0]   # 1 3 512 512 [0,1]
-                                val_ocr_result = val_out[1]
+                                if 'testr' in cfg.train.model:
+                                    val_ocr_result = val_out[1]
 
-                                # Save as PNG
-                                val_save_path = f'{cfg.save.output_dir}/{exp_name}/{val_data_name}/restored_val'
+                                # prepare visualization
+                                val_save_path = f'{cfg.save.output_dir}/{exp_name}/{val_data_name}/final_result'
                                 os.makedirs(val_save_path, exist_ok=True)
+                                
                                 # lq 
                                 val_lq_img = val_lq
                                 val_lq_img = (val_lq_img + 1.0) / 2.0
@@ -448,75 +492,32 @@ def main(cfg):
                                 val_gt_img = val_gt
                                 val_gt_img = (val_gt_img + 1.0) / 2.0
                                 # restored
-                                val_res_img = val_restored_img
-                                val_img = torch.concat([val_lq_img, val_res_img, val_gt_img], dim=3)
-                                save_image(val_img, f'{val_save_path}/restored_{val_img_id}_step{global_step:09d}.png')
+                                val_res_img = val_restored_img.squeeze(dim=0).permute(1,2,0).cpu().detach().numpy()*255.0
+                                val_res_img = val_res_img.astype(np.uint8)
 
-
-                                # log total psnr, ssim, lpips for val
-                                metrics[f'{val_data_name}_psnr'].append(torch.mean(metric_psnr(val_restored_img.to(torch.float32), torch.clamp((val_gt_img.to(torch.float32) + 1) / 2, min=0, max=1))).item())
-                                metrics[f'{val_data_name}_ssim'].append(torch.mean(metric_ssim(val_restored_img.to(torch.float32), torch.clamp((val_gt_img.to(torch.float32) + 1) / 2, min=0, max=1))).item())
-                                metrics[f'{val_data_name}_lpips'].append(torch.mean(metric_lpips(val_restored_img.to(torch.float32), torch.clamp((val_gt_img.to(torch.float32) + 1) / 2, min=0, max=1))).item())
-                                metrics[f'{val_data_name}_dists'].append(torch.mean(metric_dists(val_restored_img.to(torch.float32), torch.clamp((val_gt_img.to(torch.float32) + 1) / 2, min=0, max=1))).item())
-                                metrics[f'{val_data_name}_niqe'].append(torch.mean(metric_niqe(val_restored_img.to(torch.float32), torch.clamp((val_gt_img.to(torch.float32) + 1) / 2, min=0, max=1))).item())
-                                metrics[f'{val_data_name}_musiq'].append(torch.mean(metric_musiq(val_restored_img.to(torch.float32), torch.clamp((val_gt_img.to(torch.float32) + 1) / 2, min=0, max=1))).item())
-                                metrics[f'{val_data_name}_maniqa'].append(torch.mean(metric_maniqa(val_restored_img.to(torch.float32), torch.clamp((val_gt_img.to(torch.float32) + 1) / 2, min=0, max=1))).item())
-                                metrics[f'{val_data_name}_clipiqa'].append(torch.mean(metric_clipiqa(val_restored_img.to(torch.float32), torch.clamp((val_gt_img.to(torch.float32) + 1) / 2, min=0, max=1))).item())
-                            
-
-                                # # log sampling val imgs to wandb
-                                # if accelerator.is_main_process and cfg.log.tracker.report_to == 'wandb':
-
-                                #     # log sampling val metrics 
-                                #     wandb.log({f'val_metric/val_psnr': torch.mean(metric_psnr(
-                                #                                                                     val_restored_img.to(torch.float32), 
-                                #                                                                     torch.clamp((val_gt.to(torch.float32) + 1) / 2, min=0, max=1))).item(),
-                                #             f'val_metric/val_ssim': torch.mean(metric_ssim(
-                                #                                                                     val_restored_img.to(torch.float32), 
-                                #                                                                     torch.clamp((val_gt.to(torch.float32) + 1) / 2, min=0, max=1))).item(),
-                                #             f'val_metric/val_lpips': torch.mean(metric_lpips(
-                                #                                                                     val_restored_img.to(torch.float32), 
-                                #                                                                     torch.clamp((val_gt.to(torch.float32) + 1) / 2, min=0, max=1))).item(),
-                                #             f'val_metric/val_dists': torch.mean(metric_dists(
-                                #                                                                     val_restored_img.to(torch.float32), 
-                                #                                                                     torch.clamp((val_gt.to(torch.float32) + 1) / 2, min=0, max=1))).item(),
-                                #             f'val_metric/val_niqe': torch.mean(metric_niqe(
-                                #                                                                     val_restored_img.to(torch.float32), 
-                                #                                                                     torch.clamp((val_gt.to(torch.float32) + 1) / 2, min=0, max=1))).item(),
-                                #             f'val_metric/val_musiq': torch.mean(metric_musiq(
-                                #                                                                     val_restored_img.to(torch.float32), 
-                                #                                                                     torch.clamp((val_gt.to(torch.float32) + 1) / 2, min=0, max=1))).item(),
-                                #             f'val_metric/val_maniqa': torch.mean(metric_maniqa(
-                                #                                                                     val_restored_img.to(torch.float32), 
-                                #                                                                     torch.clamp((val_gt.to(torch.float32) + 1) / 2, min=0, max=1))).item(),
-                                #             f'val_metric/val_clipiqa': torch.mean(metric_clipiqa(
-                                #                                                                     val_restored_img.to(torch.float32), 
-                                #                                                                     torch.clamp((val_gt.to(torch.float32) + 1) / 2, min=0, max=1))).item(),
-                                #             }, step=global_step)
-
-
-                                ## -------------------- vis val ocr results -------------------- 
-                                print('== logging val ocr results ===')
-                                print(f'- Evaluating {val_data_name} - {val_img_id}')
-                                val_ocr_save_path = f'{cfg.save.output_dir}/{exp_name}/{val_data_name}/ocr_result_val'
-                                os.makedirs(val_ocr_save_path, exist_ok=True)
-
+                                # preprocess
                                 img_lq = val_lq.detach().permute(0,2,3,1).cpu().numpy() # b h w c
                                 img_gt = val_gt.detach().permute(0,2,3,1).cpu().numpy()
 
-                                for vis_batch_idx in range(len(val_gt)):
-                                    vis_lq = img_lq[vis_batch_idx] # h w c 
-                                    vis_lq = (vis_lq + 1.0)/2.0 * 255.0
-                                    vis_lq = vis_lq.astype(np.uint8)
-                                    vis_lq = vis_lq.copy()
+                                vis_lq = img_lq[0] # h w c 
+                                vis_lq = (vis_lq + 1.0)/2.0 * 255.0
+                                vis_lq = vis_lq.astype(np.uint8)
+                                vis_lq = vis_lq.copy()
+                                vis_pred = vis_lq.copy()
 
-                                    vis_gt = img_gt[vis_batch_idx] # h w c
-                                    vis_gt = (vis_gt + 1.0)/2.0 * 255.0
-                                    vis_gt = vis_gt.astype(np.uint8)
-                                    vis_pred = vis_lq.copy()
-                                    vis_gt = vis_gt.copy()
+                                vis_gt = img_gt[0] # h w c
+                                vis_gt = (vis_gt + 1.0)/2.0 * 255.0
+                                vis_gt = vis_gt.astype(np.uint8)
+                                vis_gt = vis_gt.copy()
+                                vis_gt2 = vis_gt.copy()
 
-                                    ocr_res = val_ocr_result[vis_batch_idx]
+
+                                if 'testr' in cfg.train.model:
+                                    ## -------------------- visualize restored + OCR results -------------------- 
+                                    print('== logging val ocr results ===')
+                                    print(f'- Evaluating {val_data_name} - {val_img_id}')
+                                    
+                                    ocr_res = val_ocr_result[0]
                                     vis_polys = ocr_res.polygons.view(-1,16,2)  # b 16 2
                                     vis_recs = ocr_res.recs                     # b 25
                                     for vis_img_idx in range(len(vis_polys)):
@@ -530,17 +531,30 @@ def main(cfg):
                                     gt_polys = val_polys           # b 16 2
                                     gt_texts = val_text
                                     for vis_img_idx in range(len(gt_polys)):
-                                        gt_poly = gt_polys[vis_img_idx]*512.0   # 16 2
+                                        gt_poly = gt_polys[vis_img_idx]   # 16 2
                                         # gt_poly = np.array(gt_poly.detach().cpu()).astype(np.int32)
                                         gt_poly = gt_poly.astype(np.int32)
                                         gt_txt = gt_texts[vis_img_idx]
                                         cv2.polylines(vis_gt, [gt_poly], isClosed=True, color=(0,255,0), thickness=2)
                                         cv2.putText(vis_gt, gt_txt, (gt_poly[0][0], gt_poly[0][1]-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1)
-                                    vis_ocr = cv2.hconcat([vis_pred, vis_gt])
-                                    cv2.imwrite(f'{val_ocr_save_path}/ocr_{val_img_id}_step{global_step:09d}.jpg', vis_ocr[:,:,::-1])
-                                ## -------------------- vis val ocr results -------------------- 
-                            
-                            # average using numpy
+                                    vis_result = cv2.hconcat([vis_lq, val_res_img, vis_gt2, vis_pred, vis_gt])
+                                    cv2.imwrite(f'{val_save_path}/{val_img_id}_step{global_step:09d}.jpg', vis_result[:,:,::-1])
+                                else:
+                                    ## -------------------- visualize only restored results -------------------- 
+                                    vis_result = cv2.hconcat([vis_lq, val_res_img, vis_gt2])
+                                    cv2.imwrite(f'{val_save_path}/{val_img_id}_step{global_step:09d}.jpg', vis_result[:,:,::-1])
+
+                                # append val metrics
+                                metrics[f'{val_data_name}_psnr'].append(torch.mean(metric_psnr(val_restored_img.to(torch.float32), torch.clamp((val_gt_img.to(torch.float32) + 1) / 2, min=0, max=1))).item())
+                                metrics[f'{val_data_name}_ssim'].append(torch.mean(metric_ssim(val_restored_img.to(torch.float32), torch.clamp((val_gt_img.to(torch.float32) + 1) / 2, min=0, max=1))).item())
+                                metrics[f'{val_data_name}_lpips'].append(torch.mean(metric_lpips(val_restored_img.to(torch.float32), torch.clamp((val_gt_img.to(torch.float32) + 1) / 2, min=0, max=1))).item())
+                                metrics[f'{val_data_name}_dists'].append(torch.mean(metric_dists(val_restored_img.to(torch.float32), torch.clamp((val_gt_img.to(torch.float32) + 1) / 2, min=0, max=1))).item())
+                                metrics[f'{val_data_name}_niqe'].append(torch.mean(metric_niqe(val_restored_img.to(torch.float32), torch.clamp((val_gt_img.to(torch.float32) + 1) / 2, min=0, max=1))).item())
+                                metrics[f'{val_data_name}_musiq'].append(torch.mean(metric_musiq(val_restored_img.to(torch.float32), torch.clamp((val_gt_img.to(torch.float32) + 1) / 2, min=0, max=1))).item())
+                                metrics[f'{val_data_name}_maniqa'].append(torch.mean(metric_maniqa(val_restored_img.to(torch.float32), torch.clamp((val_gt_img.to(torch.float32) + 1) / 2, min=0, max=1))).item())
+                                metrics[f'{val_data_name}_clipiqa'].append(torch.mean(metric_clipiqa(val_restored_img.to(torch.float32), torch.clamp((val_gt_img.to(torch.float32) + 1) / 2, min=0, max=1))).item())
+
+                            # calculate total val metric
                             tot_val_psnr = np.array(metrics[f'{val_data_name}_psnr']).mean()
                             tot_val_ssim = np.array(metrics[f'{val_data_name}_ssim']).mean()
                             tot_val_lpips = np.array(metrics[f'{val_data_name}_lpips']).mean()
@@ -562,7 +576,6 @@ def main(cfg):
                                     f'val_metric/{val_data_name}_val_maniqa': tot_val_maniqa,
                                     f'val_metric/{val_data_name}_val_clipiqa': tot_val_clipiqa,
                                 }, step=global_step)
-
 
             # log 
             logs = {"loss/total_loss": total_loss.detach().item(), 

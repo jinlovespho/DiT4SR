@@ -794,6 +794,8 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
         latent_tiled_size=320,
         latent_tiled_overlap=4,
         args=None,
+        cfg=None,
+        mode=None,
         **kwargs
     ):
         r"""
@@ -1041,7 +1043,10 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
 
             # save prompt
             if self.cfg.data.val.save_prompts:
-                txt_save_path = f"{self.cfg.save.output_dir}/{self.cfg.exp_name}/{kwargs['val_data_name']}/final_pred_txt"
+                if mode == 'train':
+                    txt_save_path = f"{self.cfg.save.output_dir}/{self.cfg.exp_name}/{kwargs['val_data_name']}/final_pred_txt"
+                elif mode =='val':
+                    txt_save_path = f"{self.cfg.save.output_dir}/{kwargs['val_data_name']}/{self.cfg.exp_name}/final_pred_txt"
                 os.makedirs(txt_save_path, exist_ok=True)
                 if train_glob_step is not None:
                     txt_file = f"{txt_save_path}/{kwargs['lq_id']}_step{train_glob_step:09d}.txt"
@@ -1049,6 +1054,7 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
                     txt_file = f"{txt_save_path}/{kwargs['lq_id']}.txt"
                 with open(txt_file, "w") as f:
                     f.write(f"{kwargs['lq_id']}\n")
+                    f.write(f'[text cond prompt style]: {cfg.model.dit.text_condition.caption_style}\n')
                     f.write(f'[init prompt]: {prompt}\n\n')
 
 
@@ -1120,14 +1126,34 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
                                 
                                 pred_polys.append(val_ctrl_pnt)
                                 ts_pred_text.append(val_pred_text)
-                            pred_prompt = [f"{', '.join(ts_pred_text)}"]
-                            print(f"iter: {i:02d} | timestep: {t.item():8.2f} | text prompt: {pred_prompt}")
+                            
+
+                            #  set prompt style 
+                            texts = [f'"{t}"' for t in ts_pred_text]
+                            if cfg.model.dit.text_condition.caption_style == 'descriptive':
+                                pred_prompt = [f'The image features the texts {", ".join(texts)} that appear clearly on signs, boards, buildings, or other objects.']
+                                if len(pred_prompt) == 0:
+                                    pred_prompt=[""]
+                            elif cfg.model.dit.text_condition.caption_style == 'tag':
+                                pred_prompt = [f"{', '.join(texts)}"]
+
+                            # #  set prompt style 
+                            # if cfg.model.dit.text_condition.caption_style == 'descriptive':
+                            #     texts = [[f'"{t}"' for t in txt] for txt in ts_pred_text]
+                            #     pred_prompt = [f'The image features the texts {", ".join(txt)} that appear clearly on signs, boards, buildings, or other objects.' for txt in texts]
+                            #     if len(pred_prompt) == 0:
+                            #         pred_prompt=[""]
+                            # elif cfg.model.dit.text_condition.caption_style == 'tag':
+                            #     texts=[', '.join(words) for words in ts_pred_text]  # gt words using tag style
+                            #     pred_prompt = [f"{', '.join(texts)}"]
+                            print(f"iter: {i:02d} | timestep: {t.item():8.2f} | text prompt: {ts_pred_text}")
 
                             if 'testr' in self.cfg.train.model:
                                 if self.cfg.data.val.save_prompts:
                                     with open(txt_file, "a") as f:
-                                        f.write(f"iter: {i:02d}   |   timestep: {t.item():8.2f}   |   text prompt: {pred_prompt}\n")
+                                        f.write(f"iter: {i:02d}   |   timestep: {t.item():8.2f}   |   text prompt: {ts_pred_text}\n")
 
+                            
                             # ts module inference prompt 
                             (
                                 prompt_embeds,
@@ -1152,7 +1178,6 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
                                 max_sequence_length=max_sequence_length,
                             )
 
-                            
 
 
                 else:

@@ -543,7 +543,10 @@ def set_model_device(cfg, accelerator, models):
 
     # Ensure trainable params are in fp32 (LoRA or finetuning)
     if cfg.train.mixed_precision == "fp16":
-        fp32_models = [models['transformer'], models['testr']]
+        if 'testr' in cfg.train.model:
+            fp32_models = [models['transformer'], models['testr']]
+        else:
+            fp32_models = [models['transformer']]
         cast_training_params(fp32_models, dtype=torch.float32)
 
     return weight_dtype

@@ -14,12 +14,14 @@ data:
     val_num_img: 
 
   val:
-    name: satext
-    lq_image_path: /media/dataset2/text_restoration/SAMText_test_degradation/lv3
-    gt_image_path: /media/dataset2/text_restoration/100K/test
-    ann_path: /media/dataset2/text_restoration/100K/test/dataset.json
-    use_precomputed_prompts: results/satext/lv3/dit4sr_q_llavaprompt/txt
-    captioner: llava
+    name: satext_lv3
+    lq_image_path: /mnt/dataset1/text_restoration/SAMText_test_degradation/lv3
+    gt_image_path: /mnt/dataset1/text_restoration/100K/test
+    ann_path: /mnt/dataset1/text_restoration/100K/test/dataset.json
+    # use_precomputed_prompts: results/satext/lv3/dit4sr_q_llavaprompt/txt
+    use_precomputed_prompts: 
+    # captioner: llava
+    captioner: 
     captioner_size: 
     saved_caption_path: 
     use_satext_gtprompt:
@@ -54,7 +56,10 @@ model:
     resolution: 
     load_precomputed_caption: 
     use_gtprompt: 
-
+    text_condition:
+      # caption_style: tag
+      caption_style: descriptive
+      
   ts_module:
     name:
 
@@ -66,21 +71,17 @@ ckpt:
     noise_scheduler: preset/models/stable-diffusion-3.5-medium
     tokenizer: preset/models/stable-diffusion-3.5-medium
     text_encoder: preset/models/stable-diffusion-3.5-medium
-    dit: preset/models/dit4sr_q
-    ts_module: model_ckpts/totaltext_testr_R_50_polygon.pth
+    dit: preset/models/dit4sr/dit4sr_q
+    ts_module: preset/models/testr/totaltext_testr_R_50_polygon.pth
   resume_path:
-    dit:
-  final_val_ckpt: 
-    # dit: result_train/serv12gpu0_fp16_satext_dit4sr_lr1e5_testr_lr1e4_bs3_gradaccum4_gtprompt_ocrloss001/TRAIN_serv12gpu0_fp16_satext_dit4sr_lr1e-5_testr_lr1e-4_bs3_gradaccum4_gtprompt_ocrloss0.01/checkpoint-30000
-    # dit: result_train/serv12gpu1_fp16_satext_dit4sr_lr1e5_testr_lr1e4_bs3_gradaccum4_gtprompt_ocrloss01/TRAIN_serv12gpu1_fp16_satext_dit4sr_lr1e-5_testr_lr1e-4_bs3_gradaccum4_gtprompt_ocrloss0.1/checkpoint-20000
-    dit: result_train/serv12gpu0_fp16_satext_dit4sr_lr1e5_testr_lr1e4_bs3_gradaccum4_gtprompt_ocrloss001/TRAIN_serv12gpu0_fp16_satext_dit4sr_lr1e-5_testr_lr1e-4_bs3_gradaccum4_gtprompt_ocrloss0.01/checkpoint-45000
-    # dit: result_train/serv12gpu1_fp16_satext_dit4sr_lr1e5_testr_lr1e4_bs3_gradaccum4_gtprompt_ocrloss0005/TRAIN_serv12gpu1_fp16_satext_dit4sr_lr1e-5_testr_lr1e-4_bs3_gradaccum4_gtprompt_ocrloss0.005/checkpoint-20000
-
+    dit: result_train/fp16_dit4sr-testr_1e-05-1e-04_lrbranch-attns_ocrloss0.01_msgDiTfeat24/checkpoint-16000
+  
 
 
 train:
-  finetune_model: dit4sr_testr 
-  finetune_method:
+  model: ["dit4sr", "testr"]
+  lr: 
+  finetune: 
   batch_size: 
   num_workers: 
   num_train_epochs:
@@ -96,9 +97,6 @@ train:
   gradient_accumulation_steps: 
   scale_lr: 
   use_8bit_adam: 
-  learning_rate:
-    dit: 
-    ts_module: 
   ocr_loss_weight: 
 
 
@@ -113,7 +111,7 @@ val:
 save:
   # output_dir: ./result_val/satext_lv3/serv12gpu0_fp16_satext_dit4sr_lr1e-5_testr_lr1e-4_bs3_gradaccum4_gtprompt_ocrloss0.01_checkpoint-30000
   # output_dir: ./result_val/satext_lv3/serv12gpu1_fp16_satext_dit4sr_lr1e-5_testr_lr1e-4_bs3_gradaccum4_gtprompt_ocrloss0.1_checkpoint-20000
-  output_dir: ./result_val/satext_lv3/serv12gpu0_fp16_satext_dit4sr_lr1e-5_testr_lr1e-4_bs3_gradaccum4_gtprompt_ocrloss0.01/checkpoint-45000_LRE
+  output_dir: ./result_val
   # output_dir: ./result_val/satext_lv3/serv12gpu1_fp16_satext_dit4sr_lr1e-5_testr_lr1e-4_bs3_gradaccum4_gtprompt_ocrloss0.005/checkpoint-20000
   checkpointing_steps: 
 
@@ -125,6 +123,6 @@ log:
     project_name: cvpr26_tair_extension
     # run_name: VAL_SATextLv3_serv12gpu0_fp16_satext_dit4sr_lr1e-5_testr_lr1e-4_bs3_gradaccum4_gtprompt_ocrloss0.01_checkpoint-30000
     # run_name: VAL_SATextLv3_serv12gpu1_fp16_satext_dit4sr_lr1e-5_testr_lr1e-4_bs3_gradaccum4_gtprompt_ocrloss0.1_checkpoint-20000
-    run_name: VAL_SATextLv3_serv12gpu0_fp16_satext_dit4sr_lr1e-5_testr_lr1e-4_bs3_gradaccum4_gtprompt_ocrloss0.01/checkpoint-45000_LRE
+    # run_name: VAL_SATextLv3_serv12gpu0_fp16_satext_dit4sr_lr1e-5_testr_lr1e-4_bs3_gradaccum4_gtprompt_ocrloss0.01/checkpoint-45000_LRE
     # run_name: VAL_SATextLv3_serv12gpu1_fp16_satext_dit4sr_lr1e-5_testr_lr1e-4_bs3_gradaccum4_gtprompt_ocrloss0.005/checkpoint-20000
   log_dir: logs
