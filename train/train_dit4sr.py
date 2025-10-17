@@ -38,14 +38,19 @@ logger = get_logger(__name__)
 
 def main(cfg):
     
-
+    MODE='TRAIN'
+    
     # set experiment name
-    exp_name = f'{cfg.train.mixed_precision}_{"-".join(cfg.train.model)}_{"-".join(f"{lr:.0e}" for lr in cfg.train.lr)}_{"-".join(cfg.train.finetune)}_ocrloss{cfg.train.ocr_loss_weight}_{cfg.model.dit.text_condition.caption_style}_msg{cfg.log.tracker.msg}'
+    exp_name = f'{cfg.train.mixed_precision}_{cfg.train.stage}_{"-".join(cfg.train.model)}_{"-".join(f"{lr:.0e}" for lr in cfg.train.lr)}_{"-".join(cfg.train.finetune)}_ocrloss{cfg.train.ocr_loss_weight}_{cfg.model.dit.text_condition.caption_style}_{cfg.log.tracker.msg}'
     cfg.exp_name = exp_name
 
 
     # set accelerator and basic settings (seed, logging, dir_path)
     accelerator = initialize.load_experiment_setting(cfg, logger, exp_name)
+    
+    
+    # set tracker
+    initialize.load_trackers(cfg, accelerator, exp_name, MODE)
 
 
     # load data
@@ -57,11 +62,11 @@ def main(cfg):
 
 
     # load model parameters (total_params, trainable_params, frozen_params)
-    model_params = initialize.load_model_params(cfg, models)
+    model_params = initialize.load_model_params(cfg, accelerator, models)
 
 
     # load optimizer 
-    optimizer = initialize.load_optim(cfg, accelerator, models)
+    optimizer, model_lr = initialize.load_optim(cfg, accelerator, models)
 
 
     # place models on cuda and proper weight dtype(float32, float16)
@@ -96,8 +101,6 @@ def main(cfg):
         cfg.train.max_train_steps = cfg.train.num_train_epochs * num_update_steps_per_epoch
     # Afterwards we recalculate our number of training epochs
     cfg.train.num_train_epochs = math.ceil(cfg.train.max_train_steps / num_update_steps_per_epoch)
-    
-    initialize.load_trackers(cfg, accelerator, exp_name)
 
 
     # SR metrics
@@ -142,43 +145,55 @@ def main(cfg):
     logger.info(f"  Trainable Params ({len(model_params['train_param_names'])}):")
     for name in model_params['train_param_names']:
         logger.info(f" TRAINING - {name}")
+    
+    
+    # save trainable params as txt 
+    if accelerator.is_main_process:
+        txt_file = f'{cfg.save.output_dir}/{exp_name}/train_params.txt'
+        with open(txt_file, 'w') as f:
+            # log trainable params 
+            for name in model_params['train_param_names']:
+                f.write(f'TRAINABLE - {name}\n')
+            # log frozen params 
+            for name in model_params['frozen_param_names']:
+                f.write(f'FROZEN - {name}\n')
+        # img_file = train_utils.text_file_to_image(txt_file)
 
 
     global_step = 0
     first_epoch = 0
 
-    ocr_loss = 0.0 
     ocr_losses={}  
-
-
-    # Load previous trained ckpts
-    if cfg.ckpt.resume_path.dit is not None:
-        resume_path = cfg.ckpt.resume_path.dit
-        num_ckpt = resume_path.split('/')[-1].split('-')[-1]
-        accelerator.print(f"Resuming from checkpoint {resume_path}")
-        accelerator.load_state(resume_path)
-        # load ts_module ckpt
-        if 'testr' in cfg.train.model:
-            ts_ckpt_path = os.path.join(resume_path, f"ts_module{int(num_ckpt):07d}.pt")
-            ckpt = torch.load(ts_ckpt_path, map_location="cpu")
-            load_result = models['testr'].load_state_dict(ckpt['ts_module'], strict=False)
-            print("Loaded TESTR checkpoint keys:")
-            print(" - Missing keys:", load_result.missing_keys)
-            print(" - Unexpected keys:", load_result.unexpected_keys)
-        # resume global step
-        global_step = int(num_ckpt)
-        initial_global_step = global_step
-        first_epoch = global_step // num_update_steps_per_epoch
-    else:
-        accelerator.print(f"Checkpoint '{cfg.ckpt.resume_path.dit}' does not exist. Starting a new training run.")
-        cfg.ckpt.resume_path.dit = None
-        initial_global_step = 0
-
         
+    # # Load previous trained ckpts
+    # if cfg.ckpt.resume.dit is not None:
+    #     resume_path = cfg.ckpt.resume.dit
+    #     num_ckpt = resume_path.split('/')[-1].split('-')[-1]
+    #     accelerator.print(f"Resuming from checkpoint {resume_path}")
+    #     accelerator.load_state(resume_path, strict=False)
+    #     # load ts_module ckpt
+    #     if 'testr' in cfg.train.model:
+    #         ts_ckpt_path = os.path.join(resume_path, f"ts_module{int(num_ckpt):07d}.pt")
+    #         ckpt = torch.load(ts_ckpt_path, map_location="cpu")
+    #         load_result = models['testr'].load_state_dict(ckpt['ts_module'], strict=False)
+    #         print("Loaded TESTR checkpoint keys:")
+    #         print(" - Missing keys:", load_result.missing_keys)
+    #         print(" - Unexpected keys:", load_result.unexpected_keys)
+    #     # resume global step
+    #     global_step = int(num_ckpt)
+    #     initial_global_step = global_step
+    #     first_epoch = global_step // num_update_steps_per_epoch
+    # else:
+    #     accelerator.print(f"Checkpoint '{cfg.ckpt.resume.dit}' does not exist. Starting a new training run.")
+    #     cfg.ckpt.resume.dit = None
+    #     initial_global_step = 0
+
+    
+    initial_global_step = 0
 
 
-    #     if cfg.ckpt.resume_path.dit != "latest":
-    #         path = os.path.basename(cfg.ckpt.resume_path.dit)
+    #     if cfg.ckpt.resume.dit != "latest":
+    #         path = os.path.basename(cfg.ckpt.resume.dit)
     #     else:
     #         # Get the most recent checkpoint
     #         dirs = os.listdir(f'{cfg.save.output_dir}/{exp_name}')
@@ -188,9 +203,9 @@ def main(cfg):
 
     #     if path is None:
     #         accelerator.print(
-    #             f"Checkpoint '{cfg.ckpt.resume_path.dit}' does not exist. Starting a new training run."
+    #             f"Checkpoint '{cfg.ckpt.resume.dit}' does not exist. Starting a new training run."
     #         )
-    #         cfg.ckpt.resume_path.dit = None
+    #         cfg.ckpt.resume.dit = None
     #         initial_global_step = 0
     #     else:
     #         breakpoint()
@@ -381,15 +396,16 @@ def main(cfg):
                     total_loss = diff_loss
                     ocr_tot_loss=torch.tensor(0).cuda()
 
-                # backpropagate
-                accelerator.backward(total_loss)
-                if accelerator.sync_gradients:
-                    # params_to_clip = controlnet.parameters()
-                    params_to_clip = transformer.parameters()
-                    accelerator.clip_grad_norm_(params_to_clip, cfg.train.max_grad_norm)
-                optimizer.step()
-                lr_scheduler.step()
-                optimizer.zero_grad(set_to_none=cfg.train.set_grads_to_none)
+                if global_step > 0:
+                    # backpropagate
+                    accelerator.backward(total_loss)
+                    if accelerator.sync_gradients:
+                        # params_to_clip = controlnet.parameters()
+                        params_to_clip = transformer.parameters()
+                        accelerator.clip_grad_norm_(params_to_clip, cfg.train.max_grad_norm)
+                    optimizer.step()
+                    lr_scheduler.step()
+                    optimizer.zero_grad(set_to_none=cfg.train.set_grads_to_none)
 
 
             # Checks if the accelerator has performed an optimization step behind the scenes
@@ -416,7 +432,7 @@ def main(cfg):
                             ts_module = models['testr'] 
                         else:
                             ts_module = None 
-                        # Get the validation pipeline
+                        # load validation pipeline
                         val_pipeline = StableDiffusion3ControlNetPipeline(
                             vae=models['vae'], text_encoder=models['text_encoders'][0], text_encoder_2=models['text_encoders'][1], text_encoder_3=models['text_encoders'][2], 
                             tokenizer=models['tokenizers'][0], tokenizer_2=models['tokenizers'][1], tokenizer_3=models['tokenizers'][2], 
@@ -586,7 +602,7 @@ def main(cfg):
             # ocr log
             if 'testr' in cfg.train.model:
                 logs["loss/ocr_tot_loss"] = ocr_tot_loss.detach().item()
-                logs['optim/ts_module_lr'] = cfg.train.lr[1]
+                logs['optim/ts_module_lr'] = model_lr['testr']
                 for ocr_key, ocr_val in ocr_loss_dict.items():
                     logs[f"loss/ocr_{ocr_key}"] = ocr_val.detach().item()
 

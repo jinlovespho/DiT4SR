@@ -1,6 +1,7 @@
 import re
 import torch 
 from diffusers.utils.torch_utils import is_compiled_module
+from PIL import Image, ImageDraw, ImageFont
 
 # Copied from dreambooth sd3 example
 def _encode_prompt_with_t5(
@@ -204,3 +205,44 @@ def remove_focus_sentences(text):
     
     # 根据需要选择如何重新拼接；这里去掉多余空格并直接拼接
     return "".join(filtered_sentences).strip()
+
+
+def text_file_to_image(txt_file, img_file=None, font_size=16, img_width=1000, padding=10):
+    """
+    Converts a text file to an image and saves it.
+
+    Args:
+        txt_file (str): Path to the text file.
+        img_file (str, optional): Path to save the image. 
+                                  If None, saves in the same location as txt_file with .png extension.
+        font_size (int, optional): Font size for text. Default=16.
+        img_width (int, optional): Width of the image. Default=1000.
+        padding (int, optional): Padding around text. Default=10.
+    Returns:
+        str: Path to the saved image file.
+    """
+    # Set output image file if not provided
+    if img_file is None:
+        img_file = txt_file.replace('.txt', '.png')
+
+    # Read text
+    with open(txt_file, 'r') as f:
+        lines = f.readlines()
+
+    # Load default font
+    font = ImageFont.load_default()
+
+    # Calculate image height
+    img_height = font_size * len(lines) + 2 * padding
+    img = Image.new('RGB', (img_width, img_height), color='white')
+    draw = ImageDraw.Draw(img)
+
+    # Draw each line
+    y = padding
+    for line in lines:
+        draw.text((padding, y), line.strip(), fill='black', font=font)
+        y += font_size
+
+    # Save image
+    img.save(img_file)
+    return img_file

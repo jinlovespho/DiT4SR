@@ -6,99 +6,76 @@ init:
 
 data:
   train:
-    name: 
-    hq_img_path: 
-    ann_path: 
+    name: satext
+    hq_img_path: /mnt/dataset1/text_restoration/100K/train
+    ann_path: /mnt/dataset1/text_restoration/100K/train/dataset.json
+    # hq_prompt_path: /mnt/dataset1/text_restoration/100K/dit4sr/data/train/llava13b_hq_prompt
     hq_prompt_path: 
-    null_text_ratio:
-
+    null_text_ratio: 0.0 
 
   val:
-    eval_list: [realtext]
+    # eval_list: []
+    eval_list: [realtext, satext_lv3, satext_lv2, satext_lv1]
 
     realtext:
       lq_img_path: /mnt/dataset1/text_restoration/tair_published/real_text/LQ
       hq_img_path: /mnt/dataset1/text_restoration/tair_published/real_text/HQ
       ann_path: /mnt/dataset1/text_restoration/tair_published/real_text/realtext_ann.json
-      # val_num_img: 847
-      val_num_img: 1
+      val_num_img: 30
 
     satext_lv3:
       lq_img_path: /mnt/dataset1/text_restoration/SAMText_test_degradation/lv3
       hq_img_path: /mnt/dataset1/text_restoration/100K/test
       ann_path: /mnt/dataset1/text_restoration/100K/test/dataset.json
-      val_num_img: 1000
+      val_num_img: 30
   
     satext_lv2:
       lq_img_path: /mnt/dataset1/text_restoration/SAMText_test_degradation/lv2
       hq_img_path: /mnt/dataset1/text_restoration/100K/test
       ann_path: /mnt/dataset1/text_restoration/100K/test/dataset.json
-      val_num_img: 1000
+      val_num_img: 30
 
     satext_lv1:
       lq_img_path: /mnt/dataset1/text_restoration/SAMText_test_degradation/lv1
       hq_img_path: /mnt/dataset1/text_restoration/100K/test
       ann_path: /mnt/dataset1/text_restoration/100K/test/dataset.json
-      val_num_img: 1000
+      val_num_img: 30
 
-
-
-
-
-    name: realtext
-    lq_image_path: /media/dataset2/text_restoration/tair_published/real_text/LQ
-    gt_image_path: /media/dataset2/text_restoration/tair_published/real_text/HQ
-    ann_path: /media/dataset2/text_restoration/tair_published/real_text/realtext_ann.json
-    text_cond_prompt:
-      # choose from [gt, pred, null]
-      prompt_type:
-      captioner:
-        # choose from [tsm, vlm]
-        model: vlm
-        # choose from [llava_13b, qwenvl, internvl]
-        vlm_model: llava_13b
-        vlm_prompt_path: /mnt/dataset1/text_restoration/100K/text_prompt/test/realtext/llava_13b
-
-    use_precomputed_prompts: results/realtext/dit4sr_q_wllava/txt
-    captioner: llava
-    captioner_size: 
-    saved_caption_path: 
-    use_satext_gtprompt: False
-    use_nullprompt: False
+    use_satext_gtprompt:
+    use_nullprompt: True
     added_prompt: "Cinematic, hyper sharpness, highly detailed, perfect without deformations, camera, hyper detailed photo - realistic maximum detail, 32k, Color Grading, ultra HD, extreme meticulous detailing, skin pore detailing." 
     negative_prompt:
     save_prompts: True
     sample_times: 1
     guidance_scale: 1.0
-    start_point: noise
+    start_point: lr
     latent_tiled_size: 64
     latent_tiled_overlap: 24
     upscale: 4
     process_size: 512
     num_inference_steps: 40
     align_method: adain
-
-
-
+    
 
 model:
   noise_scheduler:
-    weighting_scheme:
-    logit_mean: 
-    logit_std: 
-    mode_scale:
-    precondition_outputs: 
+    weighting_scheme: logit_normal
+    logit_mean: 0.0
+    logit_std: 1.0 
+    mode_scale: 1.29
+    precondition_outputs: 1
 
   dit:
-    name: 
-    resolution: 
-    use_gtprompt: 
+    name: dit4sr
+    resolution: 512
+    load_precomputed_caption: True
+    use_gtprompt: True
     text_condition:
       # caption_style: tag
       caption_style: descriptive
 
   ts_module:
-    name:
+    name: testr 
 
 
 ckpt:
@@ -114,38 +91,39 @@ ckpt:
     ts_module: 
 
 
-
-
 train:
-  stage: 
-  model: ["testr"]
-  lr: []
-  finetune: []
-  batch_size: 
-  num_workers: 
-  num_train_epochs:
+  stage: stage3
+  model: ["dit4sr", "testr"]
+  lr: [1e-5, 1e-4]
+  finetune: [lrbranch, attns]
+  batch_size: 1
+  num_workers: 4
+  num_train_epochs: 300
   max_train_steps: 
   mixed_precision: 'fp16'
-  lr_scheduler: 
-  lr_warmup_steps: 
-  lr_num_cycles: 
-  lr_power: 
-  max_grad_norm: 
-  set_grads_to_none: 
-  gradient_checkpointing:
-  gradient_accumulation_steps: 
-  scale_lr: 
-  use_8bit_adam: 
-  ocr_loss_weight: 
+  lr_scheduler: "constant"
+  lr_warmup_steps: 0
+  lr_num_cycles: 1
+  lr_power: 1.0
+  max_grad_norm: 1.0
+  set_grads_to_none: False
+  gradient_checkpointing: True
+  gradient_accumulation_steps: 8
+  scale_lr: False
+  use_8bit_adam: False
+  # ocr_loss_weight: 0.0
+  ocr_loss_weight: 0.01
+  # ocr_loss_weight: 0.1
+  # ocr_loss_weight: 0.005
   
 
 val:
-  val_every_step:
+  val_every_step: 500
 
 
 save:
-  output_dir: ./result_val/realtext_test
-  checkpointing_steps: 
+  output_dir: ./result_train/stage3
+  checkpointing_steps: 2000
 
 
 log:
@@ -154,6 +132,7 @@ log:
     key: e32eed0c2509bf898b850b0065ab62345005fb73
     project_name: cvpr26_tair_extension
     server: 20
-    gpu: 2
-    msg: DiTfeat24_dit4sr_baseline_testr_pretrained
+    gpu: 7
+    # msg: DiTfeat4
+    msg: DiTfeat24
   log_dir: logs

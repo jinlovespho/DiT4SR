@@ -1,3 +1,4 @@
+import sys
 import os 
 import cv2
 import math
@@ -129,12 +130,12 @@ def load_experiment_setting(cfg, logger, exp_name):
                     model = models[i]
                     if hasattr(model, "save_pretrained"):  # Hugging Face
                         model.save_pretrained(os.path.join(output_dir, "transformer"))
-                    else:  # Bit of a hacky solution to save non-Hugging Face models - e.g., text spotting module
-                        ckpt_dict={}
-                        unwrapped_model = accelerator.unwrap_model(model)
-                        ckpt_dict['ts_module'] = unwrapped_model.state_dict()
-                        ckpt_path = f"{output_dir}/ts_module.pt"
-                        torch.save(ckpt_dict, ckpt_path)
+                    # else:  # Bit of a hacky solution to save non-Hugging Face models - e.g., text spotting module
+                    #     ckpt_dict={}
+                    #     unwrapped_model = accelerator.unwrap_model(model)
+                    #     ckpt_dict['ts_module'] = unwrapped_model.state_dict()
+                    #     ckpt_path = f"{output_dir}/ts_module.pt"
+                    #     torch.save(ckpt_dict, ckpt_path)
                     i -= 1
         def load_model_hook(models, input_dir):
             while len(models) > 0:
@@ -146,13 +147,29 @@ def load_experiment_setting(cfg, logger, exp_name):
                     model.register_to_config(**load_model.config)
                     model.load_state_dict(load_model.state_dict())
                     del load_model
-                else:
-                    ts_ckpt = torch.load(f'{input_dir}/ts_module.pt', map_location="cpu")
-                    load_result = model.load_state_dict(ts_ckpt['ts_module'], strict=False)
-                    print('- TS MODULE load result: ', load_result)
+                # else:
+                #     ts_ckpt = torch.load(f'{input_dir}/ts_module.pt', map_location="cpu")
+                #     load_result = model.load_state_dict(ts_ckpt['ts_module'], strict=False)
+                #     print('- TS MODULE load result: ', load_result)
         accelerator.register_save_state_pre_hook(save_model_hook)
         accelerator.register_load_state_pre_hook(load_model_hook)
     return accelerator
+
+
+
+def load_trackers(cfg, accelerator, exp_name, MODE):
+    # We need to initialize the trackers we use, and also store our configuration.
+    # The trackers initializes automatically on the main process.
+    if accelerator.is_main_process:
+        wandb.login(key=cfg.log.tracker.key)
+        accelerator.init_trackers(
+            project_name=cfg.log.tracker.project_name,
+            config=argparse.Namespace(**OmegaConf.to_container(cfg, resolve=True)),
+            init_kwargs={
+                    'wandb':{
+                        'name': f'{MODE}_serv{str(cfg.log.tracker.server)}gpu{str(cfg.log.tracker.gpu)}_{exp_name}',}
+                }
+        )
 
 
 def load_val_data(val_data):
@@ -236,8 +253,10 @@ def load_data(cfg):
         from basicsr.data.pho_realesrgan_dataset import collate_fn_real
         collate_fn = collate_fn_real
         train_ds = PhoRealESRGANDataset(cfg.data.train, mode='train')
-    train_loader = torch.utils.data.DataLoader(train_ds, shuffle=True, batch_size=cfg.train.batch_size, num_workers=cfg.train.num_workers, collate_fn=collate_fn)
-
+        train_loader = torch.utils.data.DataLoader(train_ds, shuffle=True, batch_size=cfg.train.batch_size, num_workers=cfg.train.num_workers, collate_fn=collate_fn)
+    else:
+        train_loader = None
+        
     # validation data
     validation_data={}
     if 'realtext' in cfg.data.val.eval_list:
@@ -310,15 +329,20 @@ def load_model(cfg, accelerator):
 
     models['tokenizers'] = tokenizers 
     models['text_encoders'] = text_encoders 
-
-
-    # load image restoration module 
-    if 'dit4sr' in cfg.train.model:
-        # load transformer 
-        transformer = SD3Transformer2DModel.from_pretrained_local(cfg.ckpt.init_path.dit, subfolder="transformer", revision=None, variant=None)
-        transformer.requires_grad_(False)
-        models['transformer'] = transformer
-
+    
+    
+    # load dit 
+    if cfg.ckpt.resume_path.dit is not None:
+        dit_ckpt_path = cfg.ckpt.resume_path.dit
+    else: 
+        dit_ckpt_path = cfg.ckpt.init_path.dit
+    transformer = SD3Transformer2DModel.from_pretrained_local(dit_ckpt_path, subfolder="transformer", revision=None, variant=None)
+    transformer.requires_grad_(False)
+    models['transformer'] = transformer
+    if accelerator.is_main_process:
+        print('- Loaded DiT4SR ckpt: ', cfg.ckpt.init_path.dit)
+    
+    
     # load ts module 
     if 'testr' in cfg.train.model:
         from testr.adet.modeling.transformer_detector import TransformerDetector
@@ -329,26 +353,40 @@ def load_model(cfg, accelerator):
         config_testr.freeze()
         # load testr model
         detector = TransformerDetector(config_testr)
-        # load testr pretrained weights
-        ckpt = torch.load(cfg.ckpt.init_path.ts_module, map_location="cpu")
-        load_result = detector.load_state_dict(ckpt['model'], strict=False)
-        if accelerator.is_main_process:
-            print("Loaded Initial TESTR checkpoint keys:")
-            print(" - Initial Missing keys:", load_result.missing_keys)
+        # load testr pretrained weights     
+        if cfg.ckpt.resume_path.ts_module is not None:
+            ckpt_path = int(cfg.ckpt.init_path.ts_module.split('/')[-1].split('-')[-1])
+            tsm_ckpt_path = f'{cfg.ckpt.init_path.ts_module}/ts_module{tsm_ckpt_path:07d}.pt'
+            ckpt = torch.load(tsm_ckpt_path, map_location="cpu")
+            load_result = detector.load_state_dict(ckpt['ts_module'], strict=False)
+            if accelerator.is_main_process:
+                print('- Loaded TESTR ckpt: ', tsm_ckpt_path)
+                print(" - Initial Missing keys:", load_result.missing_keys)
+        else:
+            if cfg.ckpt.init_path.ts_module is not None:
+                tsm_ckpt_path = cfg.ckpt.init_path.ts_module
+                ckpt = torch.load(tsm_ckpt_path, map_location="cpu")
+                load_result = detector.load_state_dict(ckpt['model'], strict=False)
+                if accelerator.is_main_process:
+                    print('- Loaded TESTR ckpt: ', tsm_ckpt_path)
+                    print(" - Initial Missing keys:", load_result.missing_keys)
+            else:
+                if accelerator.is_main_process:
+                    print('- TESTR ckpt: SCRATCH')
         models['testr'] = detector.train()
 
 
-    # load vlm captioner 
-    if not cfg.model.dit.load_precomputed_caption:
-        from llava.llm_agent import LLavaAgent
-        from CKPT_PTH import LLAVA_MODEL_PATH
-        llava_agent = LLavaAgent(LLAVA_MODEL_PATH, accelerator.device, load_8bit=True, load_4bit=False)
-        models['vlm_agent'] = llava_agent
+    # # load vlm captioner 
+    # if not cfg.model.dit.load_precomputed_caption:
+    #     from llava.llm_agent import LLavaAgent
+    #     from CKPT_PTH import LLAVA_MODEL_PATH
+    #     llava_agent = LLavaAgent(LLAVA_MODEL_PATH, accelerator.device, load_8bit=True, load_4bit=False)
+    #     models['vlm_agent'] = llava_agent
 
     return models 
 
 
-def load_model_params(cfg, models):
+def load_model_params(cfg, accelerator, models):
 
     tot_param_names=[]
     train_param_names=[]
@@ -357,14 +395,13 @@ def load_model_params(cfg, models):
     tot_param_count=0
     train_param_count=0
     frozen_param_count=0
-
+    
     # load image restoration module 
     if 'dit4sr' in cfg.train.model:
         for name, param in models['transformer'].named_parameters():
             numel = param.numel()
             tot_param_count += numel
             tot_param_names.append(name)
-
 
             train_this_param = False
             # train lr branch
@@ -374,7 +411,6 @@ def load_model_params(cfg, models):
             if ('attns' in cfg.train.finetune) and ('attn' in name):
                 train_this_param = True 
             
-
             if train_this_param:
                 param.requires_grad = True
                 train_param_count += numel
@@ -383,27 +419,6 @@ def load_model_params(cfg, models):
                 param.requires_grad = False
                 frozen_param_count += numel
                 frozen_param_names.append(name)
-
-            # # dit4sr baseline (training only the lr branch)
-            # if 'lrbranch' in cfg.train.finetune:
-            #     if 'control' in name:
-            #         param.requires_grad = True
-            #         train_param_count += numel
-            #         train_param_names.append(name)
-            #     else:
-            #         param.requires_grad = False
-            #         frozen_param_count += numel
-            #         frozen_param_names.append(name)
-            
-            # if 'attns' in cfg.train.finetune:
-            #     if 'attn' in name:
-            #         param.requires_grad = True
-            #         train_param_count += numel
-            #         train_param_names.append(name)
-            #     else:
-            #         param.requires_grad = False
-            #         frozen_param_count += numel
-            #         frozen_param_names.append(name)
 
 
     # load text spotting module 
@@ -427,7 +442,7 @@ def load_model_params(cfg, models):
     model_params['tot_param'] = tot_param_count
     model_params['train_param'] = train_param_count
     model_params['frozen_param'] = frozen_param_count
-
+    
     return model_params
 
 
@@ -441,15 +456,21 @@ def load_optim(cfg, accelerator, models):
 
     # setup optimizer class
     optimizer_class = bnb.optim.AdamW8bit if cfg.train.use_8bit_adam else torch.optim.AdamW
+    
 
+    model_lr={}
+    for model, lr in zip(cfg.train.model, cfg.train.lr):
+        model_lr[model] = lr 
+        
+    
     param_groups=[]
-    if 'dit4sr' in cfg.train.model:
+    if ('dit4sr' in cfg.train.model) and ('dit4sr' in model_lr):
         transformer_params = list(filter(lambda p: p.requires_grad, models['transformer'].parameters()))
-        param_groups.append({"params": transformer_params, "lr": cfg.train.lr[0]})
+        param_groups.append({"params": transformer_params, "lr": model_lr['dit4sr']})
 
-    if 'testr' in cfg.train.model:
+    if ('testr' in cfg.train.model) and ('testr' in cfg.train.model):
         testr_params = list(filter(lambda p: p.requires_grad, models['testr'].parameters()))
-        param_groups.append({"params": testr_params, "lr": cfg.train.lr[1]})
+        param_groups.append({"params": testr_params, "lr": model_lr['testr']})
 
     # optimizer
     optimizer = optimizer_class(
@@ -459,35 +480,8 @@ def load_optim(cfg, accelerator, models):
         eps=1e-08,
     )
 
-    # # load trainable params
-    # params_to_optimize = list(filter(lambda p: p.requires_grad, models['transformer'].parameters()))
+    return optimizer, model_lr
 
-    # # optimizer
-    # optimizer = optimizer_class(
-    #     params_to_optimize,
-    #     lr=args.learning_rate,
-    #     betas=(args.adam_beta1, args.adam_beta2),
-    #     weight_decay=args.adam_weight_decay,
-    #     eps=args.adam_epsilon,
-    # )
-
-    return optimizer
-
-
-def load_trackers(cfg, accelerator, exp_name):
-    # We need to initialize the trackers we use, and also store our configuration.
-    # The trackers initializes automatically on the main process.
-    if accelerator.is_main_process:
-        wandb.login(key=cfg.log.tracker.key)
-        accelerator.init_trackers(
-            project_name=cfg.log.tracker.project_name,
-            config=argparse.Namespace(**OmegaConf.to_container(cfg, resolve=True)),
-            init_kwargs={
-                    'wandb':{
-                        'name': f'TRAIN_serv{str(cfg.log.tracker.server)}gpu{str(cfg.log.tracker.gpu)}_{exp_name}',}
-                }
-        )
-        
 
 
 
