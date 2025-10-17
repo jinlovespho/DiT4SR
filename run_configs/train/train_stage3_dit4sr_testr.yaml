@@ -21,29 +21,37 @@ data:
       lq_img_path: /mnt/dataset1/text_restoration/tair_published/real_text/LQ
       hq_img_path: /mnt/dataset1/text_restoration/tair_published/real_text/HQ
       ann_path: /mnt/dataset1/text_restoration/tair_published/real_text/realtext_ann.json
+      vlm_captioner: 
+      vlm_caption_path: 
       val_num_img: 30
 
     satext_lv3:
       lq_img_path: /mnt/dataset1/text_restoration/SAMText_test_degradation/lv3
       hq_img_path: /mnt/dataset1/text_restoration/100K/test
       ann_path: /mnt/dataset1/text_restoration/100K/test/dataset.json
+      vlm_captioner: 
+      vlm_caption_path: 
       val_num_img: 30
   
     satext_lv2:
       lq_img_path: /mnt/dataset1/text_restoration/SAMText_test_degradation/lv2
       hq_img_path: /mnt/dataset1/text_restoration/100K/test
       ann_path: /mnt/dataset1/text_restoration/100K/test/dataset.json
+      vlm_captioner: 
+      vlm_caption_path: 
       val_num_img: 30
 
     satext_lv1:
       lq_img_path: /mnt/dataset1/text_restoration/SAMText_test_degradation/lv1
       hq_img_path: /mnt/dataset1/text_restoration/100K/test
       ann_path: /mnt/dataset1/text_restoration/100K/test/dataset.json
+      vlm_captioner: 
+      vlm_caption_path: 
       val_num_img: 30
 
-    use_satext_gtprompt:
-    use_nullprompt: True
-    added_prompt: "Cinematic, hyper sharpness, highly detailed, perfect without deformations, camera, hyper detailed photo - realistic maximum detail, 32k, Color Grading, ultra HD, extreme meticulous detailing, skin pore detailing." 
+    # choose from [gt, pred_tsm, pred_vlm, null]
+    text_cond_prompt: pred_tsm
+    
     negative_prompt:
     save_prompts: True
     sample_times: 1
@@ -84,17 +92,19 @@ ckpt:
     noise_scheduler: preset/models/stable-diffusion-3.5-medium
     tokenizer: preset/models/stable-diffusion-3.5-medium
     text_encoder: preset/models/stable-diffusion-3.5-medium
-    dit: preset/models/dit4sr/dit4sr_q
-    ts_module: preset/models/testr/totaltext_testr_R_50_polygon.pth
+    # dit: preset/models/dit4sr/dit4sr_q
+    # ts_module: preset/models/testr/totaltext_testr_R_50_polygon.pth
+    dit:
+    ts_module:
   resume_path:
-    dit: 
-    ts_module: 
+    dit: result_train/stage2/fp16_stage2_testr_1e-04__ocrloss0.01_descriptive_DiTfeat24_dit4sr_lr1e5_ckpt18k_testr_pretrained/checkpoint-6000
+    ts_module: result_train/stage2/fp16_stage2_testr_1e-04__ocrloss0.01_descriptive_DiTfeat24_dit4sr_lr1e5_ckpt18k_testr_pretrained/checkpoint-6000
 
 
 train:
   stage: stage3
   model: ["dit4sr", "testr"]
-  lr: [1e-5, 1e-4]
+  lr: [5e-6, 5e-5]
   finetune: [lrbranch, attns]
   batch_size: 1
   num_workers: 4
@@ -132,7 +142,7 @@ log:
     key: e32eed0c2509bf898b850b0065ab62345005fb73
     project_name: cvpr26_tair_extension
     server: 20
-    gpu: 7
+    gpu: 4
     # msg: DiTfeat4
     msg: DiTfeat24
   log_dir: logs

@@ -37,8 +37,7 @@ logger = get_logger(__name__)
 
 
 def main(cfg):
-    
-    MODE='TRAIN'
+
     
     # set experiment name
     exp_name = f'{cfg.train.mixed_precision}_{cfg.train.stage}_{"-".join(cfg.train.model)}_{"-".join(f"{lr:.0e}" for lr in cfg.train.lr)}_{"-".join(cfg.train.finetune)}_ocrloss{cfg.train.ocr_loss_weight}_{cfg.model.dit.text_condition.caption_style}_{cfg.log.tracker.msg}'
@@ -50,7 +49,7 @@ def main(cfg):
     
     
     # set tracker
-    initialize.load_trackers(cfg, accelerator, exp_name, MODE)
+    initialize.load_trackers(cfg, accelerator, exp_name)
 
 
     # load data
@@ -464,10 +463,12 @@ def main(cfg):
                                 # get anns
                                 val_lq_path = val_sample['lq_path']
                                 val_hq_path = val_sample['hq_path']
-                                val_text = val_sample['text']
+                                val_gt_text = val_sample['text']
                                 val_bbox = val_sample['bbox']
                                 val_polys = val_sample['poly']
                                 val_img_id = val_sample['img_id']
+                                val_vlm_cap = val_sample['vlm_cap']
+                                
 
                                 # place lq on cuda
                                 val_lq = T.ToTensor()(Image.open(val_lq_path)).to(device=accelerator.device, dtype=weight_dtype).unsqueeze(dim=0)   # 1 3 128 128 
@@ -480,13 +481,31 @@ def main(cfg):
                                 val_gt = (val_gt - val_gt.min()) / (val_gt.max() - val_gt.min() + 1e-8)
                                 val_gt = val_gt * 2. - 1.
 
-                                val_prompt = ['']
+                                # gt prompt 
+                                if cfg.data.val.text_cond_prompt == 'gt':
+                                    texts = [f'"{t}"' for t in val_gt_text]
+                                    if cfg.model.dit.text_condition.caption_style == 'descriptive':
+                                        val_init_prompt = [f'The image features the texts {", ".join(texts)} that appear clearly on signs, boards, buildings, or other objects.']
+                                    elif cfg.model.dit.text_condition.caption_style == 'tag':
+                                        val_init_prompt = [f"{', '.join(texts)}"]
+                                        
+                                # text spotting module prompt
+                                elif cfg.data.val.text_cond_prompt == 'pred_tsm':
+                                    val_init_prompt = ['']
+                                    
+                                # vlm prompt 
+                                elif cfg.data.val.text_cond_prompt == 'pred_vlm':
+                                    val_init_prompt = [val_vlm_cap]
+                                    
+                                # null prompt 
+                                elif cfg.data.val.text_cond_prompt == 'null':
+                                    val_init_prompt = ['']
                                 neg_prompt = None 
 
                                 # validation forward pass
                                 with torch.no_grad():
                                     val_out = val_pipeline(
-                                        prompt=val_prompt, control_image=val_lq, num_inference_steps=cfg.data.val.num_inference_steps, generator=generator, height=height, width=width,
+                                        prompt=val_init_prompt, control_image=val_lq, num_inference_steps=cfg.data.val.num_inference_steps, generator=generator, height=height, width=width,
                                         guidance_scale=cfg.data.val.guidance_scale, negative_prompt=neg_prompt,
                                         start_point=cfg.data.val.start_point, latent_tiled_size=cfg.data.val.latent_tiled_size, latent_tiled_overlap=cfg.data.val.latent_tiled_overlap,
                                         output_type = 'pt', return_dict=False, lq_id=val_img_id, val_data_name=val_data_name, global_step=global_step, cfg=cfg, mode='train'

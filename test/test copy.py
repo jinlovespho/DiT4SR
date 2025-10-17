@@ -75,50 +75,16 @@ def main(cfg):
     pipeline = test_initialize.load_dit4sr_pipeline(cfg, accelerator)
 
 
-    breakpoint()
-
-    # # set text condition configuration
-    # if cfg.data.val.text_cond_prompt.prompt_type == 'pred':
-
-        
-    #     # use vlm captioner
-    #     if cfg.data.val.text_cond_prompt.captioner.model == 'vlm':
-    #         # use llava
-    #         if cfg.data.val.text_cond_prompt.captioner.vlm_model == 'llava':
-
-    #         # use qwen-vl                
-    #         elif cfg.data.val.text_cond_prompt.captioner.vlm_model == 'qwenvl':
-            
-    #         # use intern-vl
-    #         elif cfg.data.val.text_cond_prompt.captioner.vlm_model == 'internvl':
-        
-        
-    #     # use tsm captioner
-    #     else:
-    
-    
-    # elif cfg.data.val.text_cond_prompt.prompt_type == 'gt':
-        
-        
-    # elif cfg.data.val.text_cond_prompt.prompt_type == 'null':
-        
-        
-
-    # # prompt selection
-    # if cfg.data.val.use_precomputed_prompts is not None:
-    #     precom_prompts = sorted(glob.glob(f"{cfg.data.val.use_precomputed_prompts}/*.txt"))
-    # else:
-    #     if cfg.data.val.captioner is not None:
-    #         # load vlm
-    #         if cfg.data.val.captioner =='llava' and cfg.data.val.saved_caption_path is None:
-    #             from llava.llm_agent import LLavaAgent
-    #             from CKPT_PTH import LLAVA_MODEL_PATH
-    #             cap_agent = LLavaAgent(LLAVA_MODEL_PATH, LLaVA_device, load_8bit=True, load_4bit=False)
-    #         elif cfg.data.val.captioner == 'qwen' and cfg.data.val.saved_caption_path is None:
-    #             from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
-    #             model_size=cfg.data.val.captioner_size
-    #             vlm_model = Qwen2_5_VLForConditionalGeneration.from_pretrained(f"Qwen/Qwen2.5-VL-{model_size}B-Instruct", torch_dtype="auto", device_map="auto")
-    #             vlm_processor = AutoProcessor.from_pretrained(f"Qwen/Qwen2.5-VL-{model_size}B-Instruct")
+    # # load vlm
+    # if cfg.data.val.captioner =='llava' and cfg.data.val.saved_caption_path is None:
+    #     from llava.llm_agent import LLavaAgent
+    #     from CKPT_PTH import LLAVA_MODEL_PATH
+    #     cap_agent = LLavaAgent(LLAVA_MODEL_PATH, LLaVA_device, load_8bit=True, load_4bit=False)
+    # elif cfg.data.val.captioner == 'qwen' and cfg.data.val.saved_caption_path is None:
+    #     from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
+    #     model_size=cfg.data.val.captioner_size
+    #     vlm_model = Qwen2_5_VLForConditionalGeneration.from_pretrained(f"Qwen/Qwen2.5-VL-{model_size}B-Instruct", torch_dtype="auto", device_map="auto")
+    #     vlm_processor = AutoProcessor.from_pretrained(f"Qwen/Qwen2.5-VL-{model_size}B-Instruct")
     
     
     # load annotations

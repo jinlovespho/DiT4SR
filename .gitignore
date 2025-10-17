@@ -195,4 +195,6 @@ train_result/
 *.jpg
 result_train/
 result_val/
+result_vlm/
 vis/
+vis2/

@@ -5,31 +5,53 @@ init:
 
 
 data:
-  name:
-  satext:  
-    data_path: 
+  train:
+    name: 
+    hq_img_path: 
+    ann_path: 
     hq_prompt_path: 
-    hq_val_prompt_path: 
-    null_text_ratio: 
-    val_num_img: 
+    null_text_ratio:
+
 
   val:
-    name: satext
-    lq_image_path: /media/dataset2/text_restoration/SAMText_test_degradation/lv3
-    gt_image_path: /media/dataset2/text_restoration/100K/test
-    ann_path: /media/dataset2/text_restoration/100K/test/dataset.json
-    use_precomputed_prompts: results/satext/lv3/dit4sr_q_llavaprompt/txt
-    captioner: llava
-    captioner_size: 
-    saved_caption_path: 
-    use_satext_gtprompt: False
-    use_nullprompt: False
-    added_prompt: "Cinematic, hyper sharpness, highly detailed, perfect without deformations, camera, hyper detailed photo - realistic maximum detail, 32k, Color Grading, ultra HD, extreme meticulous detailing, skin pore detailing." 
+    eval_list: [satext_lv3]
+
+    realtext:
+      lq_img_path: /mnt/dataset1/text_restoration/tair_published/real_text/LQ
+      hq_img_path: /mnt/dataset1/text_restoration/tair_published/real_text/HQ
+      ann_path: /mnt/dataset1/text_restoration/tair_published/real_text/realtext_ann.json
+      vlm_captioner: llava_13b
+      vlm_caption_path: /mnt/dataset1/text_restoration/100K/text_prompt/test/realtext
+      val_num_img: 847
+
+    satext_lv3:
+      lq_img_path: /mnt/dataset1/text_restoration/SAMText_test_degradation/lv3
+      hq_img_path: /mnt/dataset1/text_restoration/100K/test
+      ann_path: /mnt/dataset1/text_restoration/100K/test/dataset.json
+      vlm_captioner: llava_13b
+      vlm_caption_path: /mnt/dataset1/text_restoration/100K/text_prompt/test/satext_lv3
+      val_num_img: 1000
+  
+    satext_lv2:
+      lq_img_path: /mnt/dataset1/text_restoration/SAMText_test_degradation/lv2
+      hq_img_path: /mnt/dataset1/text_restoration/100K/test
+      ann_path: /mnt/dataset1/text_restoration/100K/test/dataset.json
+      val_num_img: 1000
+
+    satext_lv1:
+      lq_img_path: /mnt/dataset1/text_restoration/SAMText_test_degradation/lv1
+      hq_img_path: /mnt/dataset1/text_restoration/100K/test
+      ann_path: /mnt/dataset1/text_restoration/100K/test/dataset.json
+      val_num_img: 1000
+
+    # choose from [gt, pred_tsm, pred_vlm, null]
+    text_cond_prompt: pred_vlm
+    
     negative_prompt:
     save_prompts: True
     sample_times: 1
     guidance_scale: 1.0
-    start_point: noise
+    start_point: lr
     latent_tiled_size: 64
     latent_tiled_overlap: 24
     upscale: 4
@@ -49,14 +71,15 @@ model:
     precondition_outputs: 
 
   dit:
-    name:
+    name: 
     resolution: 
-    load_precomputed_caption: 
     use_gtprompt: 
+    text_condition:
+      # caption_style: tag
+      caption_style: descriptive
 
   ts_module:
     name:
-
 
 
 ckpt:
@@ -65,54 +88,44 @@ ckpt:
     noise_scheduler: preset/models/stable-diffusion-3.5-medium
     tokenizer: preset/models/stable-diffusion-3.5-medium
     text_encoder: preset/models/stable-diffusion-3.5-medium
-    dit: preset/models/dit4sr_q
-    ts_module: model_ckpts/totaltext_testr_R_50_polygon.pth
+    dit: preset/models/dit4sr/dit4sr_q
+    ts_module: preset/models/testr/totaltext_testr_R_50_polygon.pth
   resume_path:
     dit:
-  final_val_ckpt: 
-    # dit: result_train/serv12gpu0_fp16_satext_dit4sr_lr1e5_testr_lr1e4_bs3_gradaccum4_gtprompt_ocrloss001/TRAIN_serv12gpu0_fp16_satext_dit4sr_lr1e-5_testr_lr1e-4_bs3_gradaccum4_gtprompt_ocrloss0.01/checkpoint-30000
-    # dit: result_train/serv12gpu1_fp16_satext_dit4sr_lr1e5_testr_lr1e4_bs3_gradaccum4_gtprompt_ocrloss01/TRAIN_serv12gpu1_fp16_satext_dit4sr_lr1e-5_testr_lr1e-4_bs3_gradaccum4_gtprompt_ocrloss0.1/checkpoint-20000
-    dit: 
+    ts_module: 
+
 
 
 
 train:
-  # finetune_model: dit4sr_testr 
-  finetune_model: dit4sr
-  finetune_method:
+  stage: 
+  model: []
+  lr: []
+  finetune: []
   batch_size: 
   num_workers: 
   num_train_epochs:
   max_train_steps: 
-  mixed_precision: "fp16"
+  mixed_precision: 'fp16'
   lr_scheduler: 
   lr_warmup_steps: 
   lr_num_cycles: 
   lr_power: 
-  max_grad_norm:
+  max_grad_norm: 
   set_grads_to_none: 
   gradient_checkpointing:
   gradient_accumulation_steps: 
   scale_lr: 
   use_8bit_adam: 
-  learning_rate:
-    dit: 
-    ts_module: 
   ocr_loss_weight: 
-
+  
 
 val:
-  batch_size: 
-  num_workers: 
-  val_every_step: 
-  log_train_ocr_result_every: 
-
+  val_every_step:
 
 
 save:
-  # output_dir: ./result_val/satext_lv3/serv12gpu0_fp16_satext_dit4sr_lr1e-5_testr_lr1e-4_bs3_gradaccum4_gtprompt_ocrloss0.01_checkpoint-30000
-  # output_dir: ./result_val/satext_lv3/serv12gpu1_fp16_satext_dit4sr_lr1e-5_testr_lr1e-4_bs3_gradaccum4_gtprompt_ocrloss0.1_checkpoint-20000
-  output_dir: ./result_val/satext_lv3/dit4sr_baseline_llavaprompt
+  output_dir: ./result_val
   checkpointing_steps: 
 
 
@@ -121,6 +134,7 @@ log:
     report_to: wandb 
     key: e32eed0c2509bf898b850b0065ab62345005fb73
     project_name: cvpr26_tair_extension
-    # run_name: VAL_SATextLv3_serv12gpu0_fp16_satext_dit4sr_lr1e-5_testr_lr1e-4_bs3_gradaccum4_gtprompt_ocrloss0.01_checkpoint-30000
-    run_name: VAL_SATextLv3_dit4sr_baseline_llavaprompt
+    server: 20
+    gpu: 1
+    msg:
   log_dir: logs

@@ -157,7 +157,7 @@ def load_experiment_setting(cfg, logger, exp_name):
 
 
 
-def load_trackers(cfg, accelerator, exp_name, MODE):
+def load_trackers(cfg, accelerator, exp_name):
     # We need to initialize the trackers we use, and also store our configuration.
     # The trackers initializes automatically on the main process.
     if accelerator.is_main_process:
@@ -167,7 +167,7 @@ def load_trackers(cfg, accelerator, exp_name, MODE):
             config=argparse.Namespace(**OmegaConf.to_container(cfg, resolve=True)),
             init_kwargs={
                     'wandb':{
-                        'name': f'{MODE}_serv{str(cfg.log.tracker.server)}gpu{str(cfg.log.tracker.gpu)}_{exp_name}',}
+                        'name': f'TRAIN_serv{str(cfg.log.tracker.server)}gpu{str(cfg.log.tracker.gpu)}_{exp_name}',}
                 }
         )
 
@@ -183,7 +183,7 @@ def load_val_data(val_data):
         anns = sorted(anns.items())
     # for
     val_count=0
-    for lq, hq, ann in zip(lq_paths, hq_paths, anns):
+    for val_idx, (lq, hq, ann) in enumerate(zip(lq_paths, hq_paths, anns)):
         val_count+=1
         if val_count > val_data.val_num_img:
             break
@@ -192,6 +192,20 @@ def load_val_data(val_data):
         hq_id = hq.split('/')[-1].split('.')[0]
         ann_id = ann[0]
         assert lq_id == hq_id == ann_id
+        
+
+        # load precomputed vlm captions
+        if (val_data.vlm_captioner is not None) and (val_data.vlm_caption_path is not None):
+            vlm_captions_txt = sorted(glob.glob(f"{val_data.vlm_caption_path}/{val_data.vlm_captioner}/*.txt"))
+            vlm_caption_txt = vlm_captions_txt[val_idx]
+            vlm_cap_id = vlm_caption_txt.split('/')[-1].split('.')[0]
+            assert vlm_cap_id == lq_id == hq_id == ann_id
+            with open(f'{vlm_caption_txt}', 'r') as f:
+                vlm_cap = f.read().strip()
+        else:
+            vlm_cap = None
+            
+        
         # process anns
         boxes=[]
         texts=[]
@@ -234,13 +248,15 @@ def load_val_data(val_data):
         # if the filetered image has no bbox and texts, skip it
         if len(boxes) == 0 or len(polys) == 0:
             continue
+        
         files.append({  "lq_path": lq,
                         'hq_path': hq,
                         "text": texts, 
                         "bbox": boxes,
                         'poly': polys,
                         'text_enc': text_encs, 
-                        "img_id": lq_id})     
+                        "img_id": lq_id,
+                        "vlm_cap": vlm_cap})     
     return files
 
 
@@ -340,7 +356,7 @@ def load_model(cfg, accelerator):
     transformer.requires_grad_(False)
     models['transformer'] = transformer
     if accelerator.is_main_process:
-        print('- Loaded DiT4SR ckpt: ', cfg.ckpt.init_path.dit)
+        print('- Loaded DiT4SR ckpt: ', dit_ckpt_path)
     
     
     # load ts module 
@@ -355,8 +371,8 @@ def load_model(cfg, accelerator):
         detector = TransformerDetector(config_testr)
         # load testr pretrained weights     
         if cfg.ckpt.resume_path.ts_module is not None:
-            ckpt_path = int(cfg.ckpt.init_path.ts_module.split('/')[-1].split('-')[-1])
-            tsm_ckpt_path = f'{cfg.ckpt.init_path.ts_module}/ts_module{tsm_ckpt_path:07d}.pt'
+            tsm_ckpt_path = int(cfg.ckpt.resume_path.ts_module.split('/')[-1].split('-')[-1])
+            tsm_ckpt_path = f'{cfg.ckpt.resume_path.ts_module}/ts_module{tsm_ckpt_path:07d}.pt'
             ckpt = torch.load(tsm_ckpt_path, map_location="cpu")
             load_result = detector.load_state_dict(ckpt['ts_module'], strict=False)
             if accelerator.is_main_process:

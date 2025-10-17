@@ -1,60 +1,40 @@
+import glob
 import os
-import glob 
-import cv2 
+import cv2
+
+dataset = 'realtext'
+
+def load_images(path_pattern):
+    files = sorted(glob.glob(path_pattern))
+    return {os.path.splitext(os.path.basename(f))[0]: f for f in files}
+
+# Load as dictionaries keyed by image ID
+dit_baseline_testr_1e4 = load_images(
+    f'result_train/stage2/fp16_stage2_testr_1e-04__ocrloss0.01_descriptive_DiTfeat24_dit4sr_baseline_testr_pretrained/{dataset}/final_result/*.jpg')
+dit_baseline_testr_1e5 = load_images(
+    f'result_train/stage2/fp16_stage2_testr_1e-05__ocrloss0.01_descriptive_DiTfeat24_dit4sr_baseline_testr_pretrained/{dataset}/final_result/*.jpg')
+dit_trained_testr_1e4 = load_images(
+    f'result_train/stage2/fp16_stage2_testr_1e-04__ocrloss0.01_descriptive_DiTfeat24_dit4sr_lr1e5_ckpt18k_testr_pretrained/{dataset}/final_result/*.jpg')
+dit_trained_testr_1e5 = load_images(
+    f'result_train/stage2/fp16_stage2_testr_1e-05__ocrloss0.01_descriptive_DiTfeat24_dit4sr_lr1e5_ckpt18k_testr_pretrained/{dataset}/final_result/*.jpg')
 
 
-tmp1 = sorted(glob.glob('result_train/fp16_dit4sr-testr_1e-05-1e-04_lrbranch-attns_ocrloss0.01_msgDiTfeat4/realtext/restored_val/*.png'))
-tmp2 = sorted(glob.glob('result_train/fp16_dit4sr-testr_1e-05-1e-04_lrbranch-attns_ocrloss0.01_msgDiTfeat24/realtext/restored_val/*.png'))
+# Common IDs across all 4 sets
+common_ids = sorted(set(dit_baseline_testr_1e4.keys())
+                    & set(dit_baseline_testr_1e5.keys())
+                    & set(dit_trained_testr_1e4.keys())
+                    & set(dit_trained_testr_1e5.keys()))
 
-tmp3 = sorted(glob.glob('result_train/fp16_dit4sr-testr_1e-05-1e-04_lrbranch-attns_ocrloss0.01_msgDiTfeat4/realtext/ocr_result_val/*.jpg'))
-tmp4 = sorted(glob.glob('result_train/fp16_dit4sr-testr_1e-05-1e-04_lrbranch-attns_ocrloss0.01_msgDiTfeat24/realtext/ocr_result_val/*.jpg'))
+save_dir = f'./vis/{dataset}/stage2_ocr_comparison'
+os.makedirs(save_dir, exist_ok=True)
 
-imgs = zip(tmp1, tmp2, tmp3, tmp4)
-for t1, t2, t3, t4 in imgs:
-    t1_id = t1.split('/')[-1].split('.')[0].split('restored')[-1][1:]
-    t2_id = t2.split('/')[-1].split('.')[0].split('restored')[-1][1:]
-    t3_id = t3.split('/')[-1].split('.')[0].split('ocr')[-1][1:]
-    t4_id = t4.split('/')[-1].split('.')[0].split('ocr')[-1][1:]
-    assert t1_id==t2_id==t3_id==t4_id
-
-    t1 = cv2.imread(t1)
-    t2 = cv2.imread(t2)
-    t3 = cv2.imread(t3)
-    t4 = cv2.imread(t4)
-
-    vis1 = cv2.hconcat([t1, t3])
-    vis2 = cv2.hconcat([t2, t4])
-    vis = cv2.vconcat([vis1, vis2])
-
-
-    os.makedirs('./vis/realtext', exist_ok=True)
-    cv2.imwrite(f'./vis/realtext/{t1_id}.jpg', vis)
+for img_id in common_ids:
+    tmp1 = cv2.imread(dit_baseline_testr_1e4[img_id])
+    tmp2 = cv2.imread(dit_baseline_testr_1e5[img_id])
+    tmp3 = cv2.imread(dit_trained_testr_1e4[img_id])
+    tmp4 = cv2.imread(dit_trained_testr_1e5[img_id])
+    
+    img = cv2.vconcat([tmp1, tmp2, tmp3, tmp4])
+    cv2.imwrite(f'{save_dir}/{img_id}.jpg', img)
 
 print('FINISH!')
-
-
-
-# hq = sorted(glob.glob('/media/dataset2/text_restoration/tair_published/real_text/HQ/*.jpg'))
-# lq = sorted(glob.glob('/media/dataset2/text_restoration/tair_published/real_text/LQ/*.jpg'))
-
-# dit4sr_q = sorted(glob.glob('results/realtext/dit4sr_q_wllava/sample00/*.png'))
-# dit4sr_f = sorted(glob.glob('results/realtext/dit4sr_f_wllava/sample00/*.png'))
-# tair = sorted(glob.glob('results/realtext/tair/*.png'))
-
-
-# imgs = zip(hq, lq, dit4sr_q, dit4sr_f, tair)
-
-# for i, (h, l, dq, df, t) in enumerate(imgs):
-#     h_img = cv2.imread(h)
-#     l_img = cv2.imread(l)
-#     l_img = cv2.resize(l_img, (h_img.shape[1], h_img.shape[0]))
-#     dq_img = cv2.imread(dq)
-#     df_img = cv2.imread(df)
-#     t_img = cv2.imread(t)
-
-#     id = h.split('/')[-1].split('.')[0]
-#     vis = cv2.hconcat([l_img, t_img, df_img, dq_img, h_img])
-#     cv2.imwrite(f'results_vis/realtext/{id}.png', vis)
-#     print(f'{i} saved results_vis/realtext/{id}.png')
-
-# print(f'All done!')

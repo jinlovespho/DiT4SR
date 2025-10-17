@@ -10,6 +10,7 @@ from accelerate.logging import get_logger
 import torch
 import torchvision.transforms as T 
 import torch.nn.functional as F 
+from torchvision.utils import save_image
 
 import cv2 
 import wandb
@@ -24,32 +25,42 @@ from dataloaders.utils import encode, decode
 from pipelines.pipeline_dit4sr import StableDiffusion3ControlNetPipeline
 
 
+
 logger = get_logger(__name__)
 
 
 def main(cfg):
     
-    MODE='VAL'
-    val_data_name = cfg.data.val.name
+    
+    # safety check 
+    val_data_name = cfg.data.val.eval_list[0]
     assert val_data_name in ['realtext', 'satext_lv3', 'satext_lv2', 'satext_lv1']
-
+    
+    
     # set experiment name
-    # exp_name = f'{cfg.train.mixed_precision}_{cfg.train.stage}_{"-".join(cfg.train.model)}_{"-".join(f"{lr:.0e}" for lr in cfg.train.lr)}_{"-".join(cfg.train.finetune)}_ocrloss{cfg.train.ocr_loss_weight}_{cfg.model.dit.text_condition.caption_style}_{cfg.log.tracker.msg}'
-    exp_name = 'test'
+    if cfg.ckpt.resume_path.dit is not None:
+        exp_name = cfg.ckpt.resume_path.dit.split('/')[-2]        
+    else:
+        exp_name = f'dit4sr_baseline'
     cfg.exp_name = exp_name
-    
-    # # set accelerator
-    # accelerator = Accelerator(mixed_precision=cfg.train.mixed_precision)
-    
-    # set accelerator and basic settings (seed, logging, dir_path)
-    accelerator = initialize.load_experiment_setting(cfg, logger, exp_name)
-    
-    
-    # set tracker
-    initialize.load_trackers(cfg, accelerator, exp_name, MODE)
+    print('- EXP NAME: ', exp_name)
 
+    
+    # set val save directory 
+    os.makedirs(f'{cfg.save.output_dir}/{val_data_name}/{exp_name}', exist_ok=True)
+    
+    
+    # set accelerator and wandb 
+    accelerator = Accelerator(mixed_precision=cfg.train.mixed_precision)
+    wandb.login(key=cfg.log.tracker.key)
+    wandb.init(
+        project=cfg.log.tracker.project_name,
+        name=f'VAL_{val_data_name}_serv{str(cfg.log.tracker.server)}gpu{str(cfg.log.tracker.gpu)}_{exp_name}',
+        config=OmegaConf.to_container(cfg, resolve=True)
+    )
+    
 
-    # load data
+    # load val data
     _, val_datasets = initialize.load_data(cfg)
 
     
@@ -73,6 +84,7 @@ def main(cfg):
     metric_clipiqa = pyiqa.create_metric('clipiqa', device=accelerator.device)
 
 
+    # load tsm
     if 'testr' in cfg.train.model:
         ts_module = models['testr'] 
     else:
@@ -85,8 +97,11 @@ def main(cfg):
         transformer=models['transformer'], scheduler=models['noise_scheduler'], ts_module=ts_module, cfg=cfg
     )
 
+
     metrics={}
 
+
+    # val loop
     for val_data_name, val_data in val_datasets.items():
 
         metrics[f'{val_data_name}_psnr'] = []
@@ -110,10 +125,12 @@ def main(cfg):
             # get anns
             val_lq_path = val_sample['lq_path']
             val_hq_path = val_sample['hq_path']
-            val_text = val_sample['text']
+            val_gt_text = val_sample['text']
             val_bbox = val_sample['bbox']
             val_polys = val_sample['poly']
             val_img_id = val_sample['img_id']
+            val_vlm_cap = val_sample['vlm_cap']
+            
 
             # place lq on cuda
             val_lq = T.ToTensor()(Image.open(val_lq_path)).to(device=accelerator.device, dtype=weight_dtype).unsqueeze(dim=0)   # 1 3 128 128 
@@ -121,18 +138,40 @@ def main(cfg):
             val_lq = (val_lq - val_lq.min()) / (val_lq.max() - val_lq.min() + 1e-8) # [0,1]
             val_lq = val_lq * 2. - 1.   # [-1,1]
             
+            
             # place gt to cuda
             val_gt = T.ToTensor()(Image.open(val_hq_path)).to(device=accelerator.device, dtype=weight_dtype).unsqueeze(dim=0)   # 1 3 128 128 
             val_gt = (val_gt - val_gt.min()) / (val_gt.max() - val_gt.min() + 1e-8)
             val_gt = val_gt * 2. - 1.
-
-            val_prompt = ['']
+            
+            
+            # gt prompt 
+            if cfg.data.val.text_cond_prompt == 'gt':
+                texts = [f'"{t}"' for t in val_gt_text]
+                if cfg.model.dit.text_condition.caption_style == 'descriptive':
+                    val_init_prompt = [f'The image features the texts {", ".join(texts)} that appear clearly on signs, boards, buildings, or other objects.']
+                elif cfg.model.dit.text_condition.caption_style == 'tag':
+                    val_init_prompt = [f"{', '.join(texts)}"]
+                    
+            # text spotting module prompt
+            elif cfg.data.val.text_cond_prompt == 'pred_tsm':
+                val_init_prompt = ['']
+                
+            # vlm prompt 
+            elif cfg.data.val.text_cond_prompt == 'pred_vlm':
+                val_init_prompt = [val_vlm_cap]
+                
+            # null prompt 
+            elif cfg.data.val.text_cond_prompt == 'null':
+                val_init_prompt = ['']
             neg_prompt = None 
+            
+
 
             # validation forward pass
             with torch.no_grad():
                 val_out = val_pipeline(
-                    prompt=val_prompt, control_image=val_lq, num_inference_steps=cfg.data.val.num_inference_steps, generator=generator, height=32, width=32,
+                    prompt=val_init_prompt, control_image=val_lq, num_inference_steps=cfg.data.val.num_inference_steps, generator=generator, height=32, width=32,
                     guidance_scale=cfg.data.val.guidance_scale, negative_prompt=neg_prompt,
                     start_point=cfg.data.val.start_point, latent_tiled_size=cfg.data.val.latent_tiled_size, latent_tiled_overlap=cfg.data.val.latent_tiled_overlap,
                     output_type = 'pt', return_dict=False, lq_id=val_img_id, val_data_name=val_data_name, cfg=cfg, mode='val'
@@ -140,11 +179,19 @@ def main(cfg):
             
             # retrive validation results
             val_restored_img = val_out[0]   # 1 3 512 512 [0,1]
+        
+        
+            # Save only the restored image
+            res_save_path = f'{cfg.save.output_dir}/{val_data_name}/{exp_name}/final_restored_img'
+            os.makedirs(res_save_path, exist_ok=True)
+            save_image(val_restored_img, f'{res_save_path}/{val_img_id}.png')
+            
+        
             if 'testr' in cfg.train.model:
                 val_ocr_result = val_out[1]
 
             # prepare visualization
-            val_save_path = f'{cfg.save.output_dir}/{exp_name}/{val_data_name}/final_result'
+            val_save_path = f'{cfg.save.output_dir}/{val_data_name}/{exp_name}/final_result'
             os.makedirs(val_save_path, exist_ok=True)
             
             # lq 
@@ -173,7 +220,7 @@ def main(cfg):
             vis_gt = vis_gt.copy()
             vis_gt2 = vis_gt.copy()
 
-
+            # vis ocr result
             if 'testr' in cfg.train.model:
                 ## -------------------- visualize restored + OCR results -------------------- 
                 print('== logging val ocr results ===')

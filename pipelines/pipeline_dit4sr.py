@@ -1054,6 +1054,7 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
                     txt_file = f"{txt_save_path}/{kwargs['lq_id']}.txt"
                 with open(txt_file, "w") as f:
                     f.write(f"{kwargs['lq_id']}\n")
+                    f.write(f'[text_cond_prompt]: {cfg.data.val.text_cond_prompt}\n')
                     f.write(f'[text cond prompt style]: {cfg.model.dit.text_condition.caption_style}\n')
                     f.write(f'[init prompt]: {prompt}\n\n')
 
@@ -1137,15 +1138,6 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
                             elif cfg.model.dit.text_condition.caption_style == 'tag':
                                 pred_prompt = [f"{', '.join(texts)}"]
 
-                            # #  set prompt style 
-                            # if cfg.model.dit.text_condition.caption_style == 'descriptive':
-                            #     texts = [[f'"{t}"' for t in txt] for txt in ts_pred_text]
-                            #     pred_prompt = [f'The image features the texts {", ".join(txt)} that appear clearly on signs, boards, buildings, or other objects.' for txt in texts]
-                            #     if len(pred_prompt) == 0:
-                            #         pred_prompt=[""]
-                            # elif cfg.model.dit.text_condition.caption_style == 'tag':
-                            #     texts=[', '.join(words) for words in ts_pred_text]  # gt words using tag style
-                            #     pred_prompt = [f"{', '.join(texts)}"]
                             print(f"iter: {i:02d} | timestep: {t.item():8.2f} | text prompt: {ts_pred_text}")
 
                             if 'testr' in self.cfg.train.model:
@@ -1177,7 +1169,6 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
                                 num_images_per_prompt=num_images_per_prompt,
                                 max_sequence_length=max_sequence_length,
                             )
-
 
 
                 else:

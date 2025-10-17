@@ -21,25 +21,25 @@ data:
       lq_img_path: /mnt/dataset1/text_restoration/tair_published/real_text/LQ
       hq_img_path: /mnt/dataset1/text_restoration/tair_published/real_text/HQ
       ann_path: /mnt/dataset1/text_restoration/tair_published/real_text/realtext_ann.json
-      val_num_img: 15
+      val_num_img: 30
 
     satext_lv3:
       lq_img_path: /mnt/dataset1/text_restoration/SAMText_test_degradation/lv3
       hq_img_path: /mnt/dataset1/text_restoration/100K/test
       ann_path: /mnt/dataset1/text_restoration/100K/test/dataset.json
-      val_num_img: 15
+      val_num_img: 30
   
     satext_lv2:
       lq_img_path: /mnt/dataset1/text_restoration/SAMText_test_degradation/lv2
       hq_img_path: /mnt/dataset1/text_restoration/100K/test
       ann_path: /mnt/dataset1/text_restoration/100K/test/dataset.json
-      val_num_img: 15
+      val_num_img: 30
 
     satext_lv1:
       lq_img_path: /mnt/dataset1/text_restoration/SAMText_test_degradation/lv1
       hq_img_path: /mnt/dataset1/text_restoration/100K/test
       ann_path: /mnt/dataset1/text_restoration/100K/test/dataset.json
-      val_num_img: 15
+      val_num_img: 30
 
     use_satext_gtprompt:
     use_nullprompt: True
@@ -92,6 +92,7 @@ ckpt:
 
 
 train:
+  stage: stage1
   model: ["dit4sr"]
   lr: [1e-5]
   finetune: [lrbranch, attns]
