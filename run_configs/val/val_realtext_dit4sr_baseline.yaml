@@ -23,28 +23,36 @@ data:
       vlm_captioner: llava_13b
       vlm_caption_path: /mnt/dataset1/text_restoration/100K/text_prompt/test/realtext
       val_num_img: 847
-      # val_num_img: 10
 
     satext_lv3:
-      lq_img_path: /mnt/dataset1/text_restoration/SAMText_test_degradation/lv3
-      hq_img_path: /mnt/dataset1/text_restoration/100K/test
-      ann_path: /mnt/dataset1/text_restoration/100K/test/dataset.json
-      val_num_img: 1000
+      lq_img_path: 
+      hq_img_path: 
+      ann_path: 
+      vlm_captioner: 
+      vlm_caption_path: 
+      val_num_img: 
   
     satext_lv2:
-      lq_img_path: /mnt/dataset1/text_restoration/SAMText_test_degradation/lv2
-      hq_img_path: /mnt/dataset1/text_restoration/100K/test
-      ann_path: /mnt/dataset1/text_restoration/100K/test/dataset.json
-      val_num_img: 1000
+      lq_img_path: 
+      hq_img_path: 
+      ann_path: 
+      vlm_captioner: 
+      vlm_caption_path: 
+      val_num_img: 
 
     satext_lv1:
-      lq_img_path: /mnt/dataset1/text_restoration/SAMText_test_degradation/lv1
-      hq_img_path: /mnt/dataset1/text_restoration/100K/test
-      ann_path: /mnt/dataset1/text_restoration/100K/test/dataset.json
-      val_num_img: 1000
+      lq_img_path: 
+      hq_img_path:
+      ann_path: 
+      vlm_captioner: 
+      vlm_caption_path: 
+      val_num_img: 
 
-    # choose from [gt, pred_tsm, pred_vlm, null]
-    text_cond_prompt: pred_vlm
+     # choose from [gt, null, red_tsm, pred_vlm]
+    # text_cond_prompt: "gt"
+    # text_cond_prompt: "null"
+    # text_cond_prompt: "pred_tsm"
+    text_cond_prompt: "pred_vlm"
     
     negative_prompt:
     save_prompts: True
@@ -134,6 +142,6 @@ log:
     key: e32eed0c2509bf898b850b0065ab62345005fb73
     project_name: cvpr26_tair_extension
     server: 20
-    gpu: 2
+    gpu: 7
     msg:
   log_dir: logs

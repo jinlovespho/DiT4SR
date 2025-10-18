@@ -197,14 +197,11 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
         tokenizer_3: T5TokenizerFast,
         tokenizer_2: CLIPTokenizer,
         ts_module = None,
-        cfg = None
     ):
         super().__init__()
 
         if ts_module is not None:
             self.ts_module = ts_module
-        
-        self.cfg = cfg 
 
         self.register_modules(
             vae=vae,
@@ -1042,19 +1039,26 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
 
 
             # save prompt
-            if self.cfg.data.val.save_prompts:
+            if cfg.data.val.save_prompts:
+                # set save path for train/val
                 if mode == 'train':
-                    txt_save_path = f"{self.cfg.save.output_dir}/{self.cfg.exp_name}/{kwargs['val_data_name']}/final_pred_txt"
+                    txt_save_path = f"{cfg.save.output_dir}/{cfg.exp_name}/{kwargs['val_data_name']}/final_pred_txt"
                 elif mode =='val':
-                    txt_save_path = f"{self.cfg.save.output_dir}/{kwargs['val_data_name']}/{self.cfg.exp_name}/final_pred_txt"
+                    txt_save_path = f"{cfg.save.output_dir}/{kwargs['val_data_name']}/{cfg.exp_name}/final_pred_txt"
                 os.makedirs(txt_save_path, exist_ok=True)
+                
+                # set save name for train/val
                 if train_glob_step is not None:
                     txt_file = f"{txt_save_path}/{kwargs['lq_id']}_step{train_glob_step:09d}.txt"
                 else:
                     txt_file = f"{txt_save_path}/{kwargs['lq_id']}.txt"
+                    
+                # save txt file content
                 with open(txt_file, "w") as f:
                     f.write(f"{kwargs['lq_id']}\n")
                     f.write(f'[text_cond_prompt]: {cfg.data.val.text_cond_prompt}\n')
+                    if cfg.data.val.text_cond_prompt == 'pred_vlm':
+                        f.write(f'[vlm captioner]: {cfg.vlm_captioner}\n')
                     f.write(f'[text cond prompt style]: {cfg.model.dit.text_condition.caption_style}\n')
                     f.write(f'[init prompt]: {prompt}\n\n')
 
@@ -1073,18 +1077,29 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
                 timestep = t.expand(latent_model_input.shape[0])
 
                 if h*w<=tile_size*tile_size: # tiled latent input
-                    # image_embedding = control_image.view(control_image.shape[0], 16, -1)
-                    # prompt_embeds_input = torch.cat([prompt_embeds, image_embedding], dim=-2)
-                    prompt_embeds_input = prompt_embeds
-                    if negative_prompt_embeds is not None:
-                        # negative_prompt_embeds_input = torch.cat([negative_prompt_embeds, image_embedding], dim=-2)
-                        negative_prompt_embeds_input = negative_prompt_embeds
 
+                        
+                    # TEXTUAL PROMPT GUIDANCE (TSM)
+                    if (i>0) and (cfg.data.val.text_cond_prompt == 'pred_tsm') and ('testr' in cfg.train.model):
+                        prompt_embeds_input = prompt_embeds_tsm     # prompt guidance after one timestep
+                    else:
+                        prompt_embeds_input = prompt_embeds
+                        
+                    
+                    if negative_prompt_embeds is not None:
+                        # negative_prompt_embeds_input =b torch.cat([negative_prompt_embeds, image_embedding], dim=-2)
+                        negative_prompt_embeds_input = negative_prompt_embeds
                     if self.do_classifier_free_guidance:
                         prompt_embeds_input = torch.cat([negative_prompt_embeds_input, prompt_embeds_input], dim=0)
                         pooled_prompt_embeds_input = torch.cat([negative_pooled_prompt_embeds, pooled_prompt_embeds], dim=0)
                     else:
-                        pooled_prompt_embeds_input = pooled_prompt_embeds
+                        
+                        # # TEXTUAL PROMPT GUIDANCE (TSM)
+                        if (i>0) and (cfg.data.val.text_cond_prompt == 'pred_tsm') and ('testr' in cfg.train.model):
+                            pooled_prompt_embeds_input = pooled_prompt_embeds_tsm
+                        else:
+                            pooled_prompt_embeds_input = pooled_prompt_embeds
+                    
                     
                     # controlnet(s) inference
                     trans_out = self.transformer(
@@ -1099,7 +1114,7 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
                     noise_pred = trans_out[0]
 
                     # ts module forward pass 
-                    if 'testr' in self.cfg.train.model:
+                    if 'testr' in cfg.train.model:
                         if len(trans_out) > 1:
                             etc_out = trans_out[1]
                             # unpatchify
@@ -1137,20 +1152,24 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
                                     pred_prompt=[""]
                             elif cfg.model.dit.text_condition.caption_style == 'tag':
                                 pred_prompt = [f"{', '.join(texts)}"]
-
-                            print(f"iter: {i:02d} | timestep: {t.item():8.2f} | text prompt: {ts_pred_text}")
-
-                            if 'testr' in self.cfg.train.model:
-                                if self.cfg.data.val.save_prompts:
+                            
+                            # print and save prompt
+                            if cfg.data.val.save_prompts:
+                                if cfg.data.val.text_cond_prompt == 'pred_tsm':
+                                    print(f"iter: {i:02d} | timestep: {t.item():8.2f} | text prompt: {ts_pred_text}")
                                     with open(txt_file, "a") as f:
                                         f.write(f"iter: {i:02d}   |   timestep: {t.item():8.2f}   |   text prompt: {ts_pred_text}\n")
-
+                                else:
+                                    print(f"iter: {i:02d} | timestep: {t.item():8.2f} | text prompt: {prompt}")
+                                    with open(txt_file, "a") as f:
+                                        f.write(f"iter: {i:02d}   |   timestep: {t.item():8.2f}   |   text prompt: {prompt}\n")
+                                    
                             
                             # ts module inference prompt 
                             (
-                                prompt_embeds,
+                                prompt_embeds_tsm,
                                 _,
-                                pooled_prompt_embeds,
+                                pooled_prompt_embeds_tsm,
                                 _,
                             ) = self.encode_prompt(
                                 prompt=pred_prompt,
@@ -1291,30 +1310,33 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
                 latents_dtype = latents.dtype
                 latents = self.scheduler.step(noise_pred, t, latents, return_dict=False)[0]
 
-                if latents.dtype != latents_dtype:
-                    if torch.backends.mps.is_available():
-                        # some platforms (eg. apple mps) misbehave due to a pytorch bug: https://github.com/pytorch/pytorch/pull/99272
-                        latents = latents.to(latents_dtype)
 
-                if callback_on_step_end is not None:
-                    callback_kwargs = {}
-                    for k in callback_on_step_end_tensor_inputs:
-                        callback_kwargs[k] = locals()[k]
-                    callback_outputs = callback_on_step_end(self, i, t, callback_kwargs)
+                # if latents.dtype != latents_dtype:
+                #     print('TRUE')
+                #     if torch.backends.mps.is_available():
+                #         # some platforms (eg. apple mps) misbehave due to a pytorch bug: https://github.com/pytorch/pytorch/pull/99272
+                #         latents = latents.to(latents_dtype)
 
-                    latents = callback_outputs.pop("latents", latents)
-                    prompt_embeds = callback_outputs.pop("prompt_embeds", prompt_embeds)
-                    negative_prompt_embeds = callback_outputs.pop("negative_prompt_embeds", negative_prompt_embeds)
-                    negative_pooled_prompt_embeds = callback_outputs.pop(
-                        "negative_pooled_prompt_embeds", negative_pooled_prompt_embeds
-                    )
+                # if callback_on_step_end is not None:
+                #     breakpoint()
+                #     callback_kwargs = {}
+                #     for k in callback_on_step_end_tensor_inputs:
+                #         callback_kwargs[k] = locals()[k]
+                #     callback_outputs = callback_on_step_end(self, i, t, callback_kwargs)
+
+                #     latents = callback_outputs.pop("latents", latents)
+                #     prompt_embeds = callback_outputs.pop("prompt_embeds", prompt_embeds)
+                #     negative_prompt_embeds = callback_outputs.pop("negative_prompt_embeds", negative_prompt_embeds)
+                #     negative_pooled_prompt_embeds = callback_outputs.pop(
+                #         "negative_pooled_prompt_embeds", negative_pooled_prompt_embeds
+                #     )
 
                 # call the callback, if provided
                 if i == len(timesteps) - 1 or ((i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0):
                     progress_bar.update()
 
-                if XLA_AVAILABLE:
-                    xm.mark_step()
+                # if XLA_AVAILABLE:
+                #     xm.mark_step()
                 
 
         if output_type == "latent":
@@ -1331,7 +1353,7 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
 
 
         if not return_dict:
-            if 'testr' in self.cfg.train.model:
+            if 'testr' in cfg.train.model:
                 return (image, val_ocr_result)
             else:
                 return (image,)

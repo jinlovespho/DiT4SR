@@ -42,6 +42,26 @@ def main(cfg):
         exp_name = cfg.ckpt.resume_path.dit.split('/')[-2]        
     else:
         exp_name = f'dit4sr_baseline'
+        
+    
+    if cfg.data.val.text_cond_prompt == 'pred_vlm':
+        
+        if cfg.data.val.eval_list[0] == 'realtext':
+            vlm_captioner = cfg.data.val.realtext.vlm_captioner
+        elif cfg.data.val.eval_list[0] == 'satext_lv3':
+            vlm_captioner = cfg.data.val.satext_lv3.vlm_captioner
+        elif cfg.data.val.eval_list[0] == 'satext_lv2':
+            vlm_captioner = cfg.data.val.satext_lv2.vlm_captioner
+        elif cfg.data.val.eval_list[0] == 'satext_lv1':
+            vlm_captioner = cfg.data.val.satext_lv1.vlm_captioner
+        cfg.vlm_captioner = vlm_captioner
+        
+        exp_name = f'{exp_name}_{cfg.data.val.start_point}startpoint_{cfg.data.val.text_cond_prompt}prompt_{vlm_captioner}'
+    
+    else:
+        exp_name = f'{exp_name}_{cfg.data.val.start_point}startpoint_{cfg.data.val.text_cond_prompt}prompt'
+    
+    
     cfg.exp_name = exp_name
     print('- EXP NAME: ', exp_name)
 
@@ -94,7 +114,7 @@ def main(cfg):
     val_pipeline = StableDiffusion3ControlNetPipeline(
         vae=models['vae'], text_encoder=models['text_encoders'][0], text_encoder_2=models['text_encoders'][1], text_encoder_3=models['text_encoders'][2], 
         tokenizer=models['tokenizers'][0], tokenizer_2=models['tokenizers'][1], tokenizer_3=models['tokenizers'][2], 
-        transformer=models['transformer'], scheduler=models['noise_scheduler'], ts_module=ts_module, cfg=cfg
+        transformer=models['transformer'], scheduler=models['noise_scheduler'], ts_module=ts_module,
     )
 
 
@@ -238,7 +258,7 @@ def main(cfg):
                     cv2.putText(vis_pred, pred_txt, (pred_poly[0][0], pred_poly[0][1]-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1)
 
                 gt_polys = val_polys           # b 16 2
-                gt_texts = val_text
+                gt_texts = val_gt_text
                 for vis_img_idx in range(len(gt_polys)):
                     gt_poly = gt_polys[vis_img_idx]   # 16 2
                     # gt_poly = np.array(gt_poly.detach().cpu()).astype(np.int32)

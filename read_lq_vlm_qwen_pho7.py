@@ -8,15 +8,11 @@ from qwen_vl_utils import process_vision_info
 
 
 dataset_list = [
-    'realtext', 
-    'satext_lv1', 
     'satext_lv2', 
     'satext_lv3',
 ]
 
 lq_path_list = [
-    '/mnt/dataset1/text_restoration/tair_published/real_text/LQ',
-    '/mnt/dataset1/text_restoration/SAMText_test_degradation/lv1',
     '/mnt/dataset1/text_restoration/SAMText_test_degradation/lv2',
     '/mnt/dataset1/text_restoration/SAMText_test_degradation/lv3',
     
@@ -48,7 +44,8 @@ for dataset, lq_path in zip(dataset_list, lq_path_list):
     lq_imgs = sorted(glob.glob(f'{lq_path}/*.jpg'))
     
     # load vlm
-    model_size_list=[3, 7, 32, 72]
+    # model_size_list=[3, 7, 32, 72]
+    model_size_list=[32]
     for model_size in model_size_list:
         
         print(f'qwenvl_{model_size}b')

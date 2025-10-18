@@ -1,6 +1,6 @@
 #!/bin/bash
 
-CUDA="2"
+CUDA="7"
 NUM_GPU=1
 
 CUDA_VISIBLE_DEVICES=${CUDA} accelerate launch --num_processes ${NUM_GPU} test/test.py \

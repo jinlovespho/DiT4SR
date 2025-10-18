@@ -23,25 +23,30 @@ data:
       vlm_captioner: llava_13b
       vlm_caption_path: /mnt/dataset1/text_restoration/100K/text_prompt/test/realtext
       val_num_img: 847
+      # val_num_img: 10
 
     satext_lv3:
       lq_img_path: /mnt/dataset1/text_restoration/SAMText_test_degradation/lv3
       hq_img_path: /mnt/dataset1/text_restoration/100K/test
       ann_path: /mnt/dataset1/text_restoration/100K/test/dataset.json
       vlm_captioner: llava_13b
-      vlm_caption_path: /mnt/dataset1/text_restoration/100K/text_prompt/test/satext_lv3
+      vlm_caption_path: /mnt/dataset1/text_restoration/100K/text_prompt/test/realtext
       val_num_img: 1000
   
     satext_lv2:
       lq_img_path: /mnt/dataset1/text_restoration/SAMText_test_degradation/lv2
       hq_img_path: /mnt/dataset1/text_restoration/100K/test
       ann_path: /mnt/dataset1/text_restoration/100K/test/dataset.json
+      vlm_captioner: llava_13b
+      vlm_caption_path: /mnt/dataset1/text_restoration/100K/text_prompt/test/realtext
       val_num_img: 1000
 
     satext_lv1:
       lq_img_path: /mnt/dataset1/text_restoration/SAMText_test_degradation/lv1
       hq_img_path: /mnt/dataset1/text_restoration/100K/test
       ann_path: /mnt/dataset1/text_restoration/100K/test/dataset.json
+      vlm_captioner: llava_13b
+      vlm_caption_path: /mnt/dataset1/text_restoration/100K/text_prompt/test/realtext
       val_num_img: 1000
 
     # choose from [gt, pred_tsm, pred_vlm, null]

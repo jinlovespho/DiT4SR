@@ -435,7 +435,7 @@ def main(cfg):
                         val_pipeline = StableDiffusion3ControlNetPipeline(
                             vae=models['vae'], text_encoder=models['text_encoders'][0], text_encoder_2=models['text_encoders'][1], text_encoder_3=models['text_encoders'][2], 
                             tokenizer=models['tokenizers'][0], tokenizer_2=models['tokenizers'][1], tokenizer_3=models['tokenizers'][2], 
-                            transformer=models['transformer'], scheduler=models['noise_scheduler'], ts_module=ts_module, cfg=cfg
+                            transformer=models['transformer'], scheduler=models['noise_scheduler'], ts_module=ts_module,
                         )
 
                         metrics={}
