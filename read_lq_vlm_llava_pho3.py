@@ -8,17 +8,11 @@ from transformers import AutoProcessor, LlavaForConditionalGeneration
 
 
 dataset_list = [
-    'realtext', 
     'satext_lv1', 
-    'satext_lv2', 
-    'satext_lv3',
 ]
 
 lq_path_list = [
-    '/mnt/dataset1/text_restoration/tair_published/real_text/LQ',
     '/mnt/dataset1/text_restoration/SAMText_test_degradation/lv1',
-    '/mnt/dataset1/text_restoration/SAMText_test_degradation/lv2',
-    '/mnt/dataset1/text_restoration/SAMText_test_degradation/lv3',
     
 ]
 

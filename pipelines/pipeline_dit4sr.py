@@ -1059,6 +1059,7 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
                     f.write(f'[text_cond_prompt]: {cfg.data.val.text_cond_prompt}\n')
                     if cfg.data.val.text_cond_prompt == 'pred_vlm':
                         f.write(f'[vlm captioner]: {cfg.vlm_captioner}\n')
+                        f.write(f'[vlm input ques {cfg.vlm_input_ques_num}]: {cfg.vlm_input_ques}\n')
                     f.write(f'[text cond prompt style]: {cfg.model.dit.text_condition.caption_style}\n')
                     f.write(f'[init prompt]: {prompt}\n\n')
 
@@ -1128,19 +1129,29 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
                                 with torch.no_grad():
                                     _, ocr_result = self.ts_module(extracted_feats, targets=None, MODE='VAL')                        
                             results_per_img = ocr_result[0]
-                            if i==20:
-                                val_ocr_result = ocr_result
+                            
+                            
+                            
+                            # save ocr results for ocr visualization
+                            if cfg.data.val.ocr.vis_ocr:
+                                # visualize all timesteps
+                                if -1 in cfg.data.val.ocr.vis_timestep:
+                                    val_ocr_result.append({f'timeiter_{i}': results_per_img})
+                                # visualize selected timesteps
+                                elif i in cfg.data.val.ocr.vis_timestep:
+                                    val_ocr_result.append({f'timeiter_{i}': results_per_img})
+                                    
 
 
                             ts_pred_text=[]
-                            pred_polys=[]
+                            # pred_polys=[]
                             
                             for j in range(len(results_per_img.polygons)):
                                 val_ctrl_pnt= results_per_img.polygons[j].view(16,2).cpu().detach().numpy().astype(np.int32)    # 32 -> 16 2
                                 val_rec = results_per_img.recs[j]
                                 val_pred_text = decode(val_rec)
                                 
-                                pred_polys.append(val_ctrl_pnt)
+                                # pred_polys.append(val_ctrl_pnt)
                                 ts_pred_text.append(val_pred_text)
                             
 
@@ -1152,6 +1163,11 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
                                     pred_prompt=[""]
                             elif cfg.model.dit.text_condition.caption_style == 'tag':
                                 pred_prompt = [f"{', '.join(texts)}"]
+                            
+                            
+                            # added prompt             
+                            if cfg.data.val.added_prompt is not None:
+                                pred_prompt = [f'{pred_prompt[0]} {cfg.data.val.added_prompt}']
                             
                             # print and save prompt
                             if cfg.data.val.save_prompts:
@@ -1338,7 +1354,7 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
                 # if XLA_AVAILABLE:
                 #     xm.mark_step()
                 
-
+                
         if output_type == "latent":
             image = latents
 

@@ -48,20 +48,36 @@ def main(cfg):
         
         if cfg.data.val.eval_list[0] == 'realtext':
             vlm_captioner = cfg.data.val.realtext.vlm_captioner
+            vlm_input_ques = cfg.data.val.realtext.vlm_input_ques
         elif cfg.data.val.eval_list[0] == 'satext_lv3':
             vlm_captioner = cfg.data.val.satext_lv3.vlm_captioner
+            vlm_input_ques = cfg.data.val.satext_lv3.vlm_input_ques
         elif cfg.data.val.eval_list[0] == 'satext_lv2':
             vlm_captioner = cfg.data.val.satext_lv2.vlm_captioner
+            vlm_input_ques = cfg.data.val.satext_lv2.vlm_input_ques
         elif cfg.data.val.eval_list[0] == 'satext_lv1':
             vlm_captioner = cfg.data.val.satext_lv1.vlm_captioner
+            vlm_input_ques = cfg.data.val.satext_lv1.vlm_input_ques
+            
         cfg.vlm_captioner = vlm_captioner
+        cfg.vlm_input_ques_num = vlm_input_ques
         
-        exp_name = f'{exp_name}_{cfg.data.val.start_point}startpoint_{cfg.data.val.text_cond_prompt}prompt_{vlm_captioner}'
+        # english focused input prompt
+        question_list = [
+            "OCR this image and transcribe only the English text.",
+            "Read and transcribe all English text visible in this low-resolution image.",
+            "Describe the contents of this blurry image, focusing only on any visible English text or characters.",
+            "Extract all visible English words and letters from this low-quality image, even if they appear unclear.",
+        ]
+        
+        cfg.vlm_input_ques = question_list[vlm_input_ques]
+        
+        exp_name = f'{exp_name}_{cfg.data.val.start_point}startpoint_{cfg.data.val.text_cond_prompt}prompt_{vlm_captioner}_ques{str(vlm_input_ques)}'
     
     else:
         exp_name = f'{exp_name}_{cfg.data.val.start_point}startpoint_{cfg.data.val.text_cond_prompt}prompt'
     
-    
+    exp_name = f'{exp_name}_{cfg.log.tracker.msg}'
     cfg.exp_name = exp_name
     print('- EXP NAME: ', exp_name)
 
@@ -184,9 +200,16 @@ def main(cfg):
             # null prompt 
             elif cfg.data.val.text_cond_prompt == 'null':
                 val_init_prompt = ['']
-            neg_prompt = None 
             
+            # added prompt             
+            if cfg.data.val.added_prompt is not None:
+                val_init_prompt = [f'{val_init_prompt[0]} {cfg.data.val.added_prompt}']
 
+            
+            neg_prompt = None 
+        
+            
+            
 
             # validation forward pass
             with torch.no_grad():
@@ -206,17 +229,14 @@ def main(cfg):
             os.makedirs(res_save_path, exist_ok=True)
             save_image(val_restored_img, f'{res_save_path}/{val_img_id}.png')
             
-        
-            if 'testr' in cfg.train.model:
-                val_ocr_result = val_out[1]
 
             # prepare visualization
             val_save_path = f'{cfg.save.output_dir}/{val_data_name}/{exp_name}/final_result'
             os.makedirs(val_save_path, exist_ok=True)
             
-            # lq 
-            val_lq_img = val_lq
-            val_lq_img = (val_lq_img + 1.0) / 2.0
+            # # lq 
+            # val_lq_img = val_lq
+            # val_lq_img = (val_lq_img + 1.0) / 2.0
             # gt 
             val_gt_img = val_gt
             val_gt_img = (val_gt_img + 1.0) / 2.0
@@ -232,46 +252,101 @@ def main(cfg):
             vis_lq = (vis_lq + 1.0)/2.0 * 255.0
             vis_lq = vis_lq.astype(np.uint8)
             vis_lq = vis_lq.copy()
-            vis_pred = vis_lq.copy()
+            
 
             vis_gt = img_gt[0] # h w c
             vis_gt = (vis_gt + 1.0)/2.0 * 255.0
             vis_gt = vis_gt.astype(np.uint8)
-            vis_gt = vis_gt.copy()
             vis_gt2 = vis_gt.copy()
 
+
             # vis ocr result
-            if 'testr' in cfg.train.model:
-                ## -------------------- visualize restored + OCR results -------------------- 
+            if ('testr' in cfg.train.model) and (cfg.data.val.ocr.vis_ocr):
+                
+                # prepare ocr visualization
+                val_ocr_save_path = f'{cfg.save.output_dir}/{val_data_name}/{exp_name}/final_ocr_result'
+                os.makedirs(val_ocr_save_path, exist_ok=True)
+                
+                
                 print('== logging val ocr results ===')
                 print(f'- Evaluating {val_data_name} - {val_img_id}')
                 
-                ocr_res = val_ocr_result[0]
-                vis_polys = ocr_res.polygons.view(-1,16,2)  # b 16 2
-                vis_recs = ocr_res.recs                     # b 25
-                for vis_img_idx in range(len(vis_polys)):
-                    pred_poly = vis_polys[vis_img_idx]   # 16 2
-                    pred_poly = np.array(pred_poly.detach().cpu()).astype(np.int32)         
-                    pred_rec = vis_recs[vis_img_idx]     # 25
-                    pred_txt = decode(pred_rec.tolist())
-                    cv2.polylines(vis_pred, [pred_poly], isClosed=True, color=(0,255,0), thickness=2)
-                    cv2.putText(vis_pred, pred_txt, (pred_poly[0][0], pred_poly[0][1]-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1)
-
+                
+                val_ocr_result = val_out[1]
+                
+                
+                # ------------------ overlay gt ocr ------------------
+                vis_gt = vis_gt.copy()
                 gt_polys = val_polys           # b 16 2
                 gt_texts = val_gt_text
                 for vis_img_idx in range(len(gt_polys)):
                     gt_poly = gt_polys[vis_img_idx]   # 16 2
-                    # gt_poly = np.array(gt_poly.detach().cpu()).astype(np.int32)
                     gt_poly = gt_poly.astype(np.int32)
                     gt_txt = gt_texts[vis_img_idx]
                     cv2.polylines(vis_gt, [gt_poly], isClosed=True, color=(0,255,0), thickness=2)
                     cv2.putText(vis_gt, gt_txt, (gt_poly[0][0], gt_poly[0][1]-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1)
+                # ------------------ overlay gt ocr ------------------
+                
+                
+                vis_result = cv2.hconcat([vis_gt, vis_lq])
+                # visualize ocr results per denoising timestep
+                for ocr_res in val_ocr_result:
+                    timeiter, ocr_res = next(iter(ocr_res.items()))
+                    timeiter_int = int(timeiter.split('_')[-1])
+                    
+                    # ------------------ overlay pred ocr ------------------
+                    vis_pred = vis_lq.copy()
+                    vis_polys = ocr_res.polygons.view(-1,16,2)  # b 16 2
+                    vis_recs = ocr_res.recs                     # b 25
+                    for vis_img_idx in range(len(vis_polys)):
+                        pred_poly = vis_polys[vis_img_idx]   # 16 2
+                        pred_poly = np.array(pred_poly.detach().cpu()).astype(np.int32)         
+                        pred_rec = vis_recs[vis_img_idx]     # 25
+                        pred_txt = decode(pred_rec.tolist())
+                        cv2.polylines(vis_pred, [pred_poly], isClosed=True, color=(0,255,0), thickness=2)
+                        cv2.putText(vis_pred, pred_txt, (pred_poly[0][0], pred_poly[0][1]-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1)
+                    h, w, _ = vis_pred.shape
+                    cv2.putText(vis_pred, str(timeiter_int), (w-50, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,0,0), 2)
+                    # ------------------ overlay pred ocr ------------------
+                    
+                    vis_result = cv2.hconcat([vis_result, vis_pred])
+                cv2.imwrite(f'{val_ocr_save_path}/{val_img_id}.jpg', vis_result[:,:,::-1])
+                
+                # save w/ restored results
                 vis_result = cv2.hconcat([vis_lq, val_res_img, vis_gt2, vis_pred, vis_gt])
                 cv2.imwrite(f'{val_save_path}/{val_img_id}.jpg', vis_result[:,:,::-1])
+                                
+                
+                # # visualize ocr results per denoising timestep
+                # for ocr_res in val_ocr_result:
+                #     timeiter, ocr_res = next(iter(ocr_res.items()))
+                #     timeiter = int(timeiter.split('_')[-1])
+                #     vis_polys = ocr_res.polygons.view(-1,16,2)  # b 16 2
+                #     vis_recs = ocr_res.recs                     # b 25
+                #     for vis_img_idx in range(len(vis_polys)):
+                #         pred_poly = vis_polys[vis_img_idx]   # 16 2
+                #         pred_poly = np.array(pred_poly.detach().cpu()).astype(np.int32)         
+                #         pred_rec = vis_recs[vis_img_idx]     # 25
+                #         pred_txt = decode(pred_rec.tolist())
+                #         cv2.polylines(vis_pred, [pred_poly], isClosed=True, color=(0,255,0), thickness=2)
+                #         cv2.putText(vis_pred, pred_txt, (pred_poly[0][0], pred_poly[0][1]-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1)
+                #     gt_polys = val_polys           # b 16 2
+                #     gt_texts = val_gt_text
+                #     for vis_img_idx in range(len(gt_polys)):
+                #         gt_poly = gt_polys[vis_img_idx]   # 16 2
+                #         # gt_poly = np.array(gt_poly.detach().cpu()).astype(np.int32)
+                #         gt_poly = gt_poly.astype(np.int32)
+                #         gt_txt = gt_texts[vis_img_idx]
+                #         cv2.polylines(vis_gt, [gt_poly], isClosed=True, color=(0,255,0), thickness=2)
+                #         cv2.putText(vis_gt, gt_txt, (gt_poly[0][0], gt_poly[0][1]-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1)
+                #     vis_result = cv2.hconcat([vis_lq, val_res_img, vis_gt2, vis_pred, vis_gt])
+                #     cv2.imwrite(f'{val_save_path}/{val_img_id}_timeiter{timeiter:04d}.jpg', vis_result[:,:,::-1])
+
             else:
                 ## -------------------- visualize only restored results -------------------- 
                 vis_result = cv2.hconcat([vis_lq, val_res_img, vis_gt2])
                 cv2.imwrite(f'{val_save_path}/{val_img_id}.jpg', vis_result[:,:,::-1])
+
 
             # append val metrics
             metrics[f'{val_data_name}_psnr'].append(torch.mean(metric_psnr(val_restored_img.to(torch.float32), torch.clamp((val_gt_img.to(torch.float32) + 1) / 2, min=0, max=1))).item())

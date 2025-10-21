@@ -196,7 +196,8 @@ def load_val_data(val_data):
 
         # load precomputed vlm captions
         if (val_data.vlm_captioner is not None) and (val_data.vlm_caption_path is not None):
-            vlm_captions_txt = sorted(glob.glob(f"{val_data.vlm_caption_path}/{val_data.vlm_captioner}/*.txt"))
+            dataset = val_data.vlm_caption_path.split('/')[-1]
+            vlm_captions_txt = sorted(glob.glob(f"{val_data.vlm_caption_path}/{dataset}_Englishques{str(val_data.vlm_input_ques)}/{val_data.vlm_captioner}/*.txt"))
             vlm_caption_txt = vlm_captions_txt[val_idx]
             vlm_cap_id = vlm_caption_txt.split('/')[-1].split('.')[0]
             assert vlm_cap_id == lq_id == hq_id == ann_id
@@ -356,8 +357,11 @@ def load_model(cfg, accelerator):
     transformer.requires_grad_(False)
     models['transformer'] = transformer
     if accelerator.is_main_process:
-        print('- Loaded DiT4SR ckpt: ', dit_ckpt_path)
-    
+        print("\n──────────────────────────────")
+        print(" DiT4SR Checkpoint Loaded")
+        print(f" Path: {dit_ckpt_path}")
+        print("──────────────────────────────\n")
+        
     
     # load ts module 
     if 'testr' in cfg.train.model:
@@ -371,25 +375,38 @@ def load_model(cfg, accelerator):
         detector = TransformerDetector(config_testr)
         # load testr pretrained weights     
         if cfg.ckpt.resume_path.ts_module is not None:
-            tsm_ckpt_path = int(cfg.ckpt.resume_path.ts_module.split('/')[-1].split('-')[-1])
-            tsm_ckpt_path = f'{cfg.ckpt.resume_path.ts_module}/ts_module{tsm_ckpt_path:07d}.pt'
+            tsm_ckpt_id = int(cfg.ckpt.resume_path.ts_module.split('/')[-1].split('-')[-1])
+            tsm_ckpt_path = f"{cfg.ckpt.resume_path.ts_module}/ts_module{tsm_ckpt_id:07d}.pt"
             ckpt = torch.load(tsm_ckpt_path, map_location="cpu")
-            load_result = detector.load_state_dict(ckpt['ts_module'], strict=False)
+            load_result = detector.load_state_dict(ckpt["ts_module"], strict=False)
+
             if accelerator.is_main_process:
-                print('- Loaded TESTR ckpt: ', tsm_ckpt_path)
-                print(" - Initial Missing keys:", load_result.missing_keys)
+                print("\n──────────────────────────────")
+                print(" [TESTR] Resumed from checkpoint")
+                print(f"  Path: {tsm_ckpt_path}")
+                print(f"  Missing Keys: {load_result.missing_keys}")
+                print("──────────────────────────────\n")
+
         else:
             if cfg.ckpt.init_path.ts_module is not None:
                 tsm_ckpt_path = cfg.ckpt.init_path.ts_module
                 ckpt = torch.load(tsm_ckpt_path, map_location="cpu")
-                load_result = detector.load_state_dict(ckpt['model'], strict=False)
+                load_result = detector.load_state_dict(ckpt["model"], strict=False)
+
                 if accelerator.is_main_process:
-                    print('- Loaded TESTR ckpt: ', tsm_ckpt_path)
-                    print(" - Initial Missing keys:", load_result.missing_keys)
+                    print("\n──────────────────────────────")
+                    print(" [TESTR] Initialized from checkpoint")
+                    print(f"  Path: {tsm_ckpt_path}")
+                    print(f"  Missing Keys: {load_result.missing_keys}")
+                    print("──────────────────────────────\n")
             else:
                 if accelerator.is_main_process:
-                    print('- TESTR ckpt: SCRATCH')
-        models['testr'] = detector.train()
+                    print("\n──────────────────────────────")
+                    print(" [TESTR] Initialized from scratch")
+                    print("──────────────────────────────\n")
+
+        models["testr"] = detector.train()
+
 
 
     # # load vlm captioner 

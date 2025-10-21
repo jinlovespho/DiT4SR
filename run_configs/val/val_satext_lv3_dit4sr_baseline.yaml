@@ -17,41 +17,59 @@ data:
     eval_list: [satext_lv3]
 
     realtext:
-      lq_img_path: /mnt/dataset1/text_restoration/tair_published/real_text/LQ
-      hq_img_path: /mnt/dataset1/text_restoration/tair_published/real_text/HQ
-      ann_path: /mnt/dataset1/text_restoration/tair_published/real_text/realtext_ann.json
-      vlm_captioner: llava_13b
-      vlm_caption_path: /mnt/dataset1/text_restoration/100K/text_prompt/test/realtext
-      val_num_img: 847
-      # val_num_img: 10
+      lq_img_path: 
+      hq_img_path: 
+      ann_path: 
+      vlm_captioner: 
+      # choose from [0,1,2,3]
+      vlm_input_ques: 
+      vlm_caption_path: 
+      val_num_img: 
 
     satext_lv3:
       lq_img_path: /mnt/dataset1/text_restoration/SAMText_test_degradation/lv3
       hq_img_path: /mnt/dataset1/text_restoration/100K/test
       ann_path: /mnt/dataset1/text_restoration/100K/test/dataset.json
-      vlm_captioner: llava_13b
-      vlm_caption_path: /mnt/dataset1/text_restoration/100K/text_prompt/test/realtext
+      vlm_captioner: llava_7b
+      # choose from [0,1,2,3]
+      vlm_input_ques: 3
+      # vlm_caption_path: /mnt/dataset1/text_restoration/100K/text_prompt/test/satext_lv3
+      vlm_caption_path: result_vlm/lq_caption/satext_lv3
       val_num_img: 1000
   
     satext_lv2:
-      lq_img_path: /mnt/dataset1/text_restoration/SAMText_test_degradation/lv2
-      hq_img_path: /mnt/dataset1/text_restoration/100K/test
-      ann_path: /mnt/dataset1/text_restoration/100K/test/dataset.json
-      vlm_captioner: llava_13b
-      vlm_caption_path: /mnt/dataset1/text_restoration/100K/text_prompt/test/realtext
-      val_num_img: 1000
+      lq_img_path: 
+      hq_img_path: 
+      ann_path: 
+      vlm_captioner: 
+      # choose from [0,1,2,3]
+      vlm_input_ques: 
+      vlm_caption_path: 
+      val_num_img: 
 
     satext_lv1:
-      lq_img_path: /mnt/dataset1/text_restoration/SAMText_test_degradation/lv1
-      hq_img_path: /mnt/dataset1/text_restoration/100K/test
-      ann_path: /mnt/dataset1/text_restoration/100K/test/dataset.json
-      vlm_captioner: llava_13b
-      vlm_caption_path: /mnt/dataset1/text_restoration/100K/text_prompt/test/realtext
-      val_num_img: 1000
+      lq_img_path: 
+      hq_img_path: 
+      ann_path:
+      vlm_captioner: 
+      # choose from [0,1,2,3]
+      vlm_input_ques: 
+      vlm_caption_path:
+      val_num_img: 
 
-    # choose from [gt, pred_tsm, pred_vlm, null]
-    text_cond_prompt: pred_vlm
+
+     # choose from [gt, null, red_tsm, pred_vlm]
+    # text_cond_prompt: "gt"
+    # text_cond_prompt: "null"
+    # text_cond_prompt: "pred_tsm"
+    text_cond_prompt: "pred_vlm"
+
+    ocr:
+      vis_ocr: False
+      vis_timestep: 
     
+
+    added_prompt: Cinematic, hyper sharpness, highly detailed, perfect without deformations, camera, hyper detailed photo - realistic maximum detail, 32k, Color Grading, ultra HD, extreme meticulous detailing, skin pore detailing.
     negative_prompt:
     save_prompts: True
     sample_times: 1
@@ -140,6 +158,6 @@ log:
     key: e32eed0c2509bf898b850b0065ab62345005fb73
     project_name: cvpr26_tair_extension
     server: 20
-    gpu: 1
-    msg:
+    gpu: 7
+    msg: ""
   log_dir: logs

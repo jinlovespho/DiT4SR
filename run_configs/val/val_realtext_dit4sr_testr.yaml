@@ -20,8 +20,10 @@ data:
       lq_img_path: /mnt/dataset1/text_restoration/tair_published/real_text/LQ
       hq_img_path: /mnt/dataset1/text_restoration/tair_published/real_text/HQ
       ann_path: /mnt/dataset1/text_restoration/tair_published/real_text/realtext_ann.json
-      vlm_captioner: llava_13b
-      vlm_caption_path: /mnt/dataset1/text_restoration/100K/text_prompt/test/realtext
+      vlm_captioner: 
+      # choose from [0,1,2,3]
+      vlm_input_ques: 
+      vlm_caption_path:
       val_num_img: 847
 
     satext_lv3:
@@ -29,7 +31,9 @@ data:
       hq_img_path: 
       ann_path: 
       vlm_captioner: 
-      vlm_caption_path: 
+      # choose from [0,1,2,3]
+      vlm_input_ques: 
+      vlm_caption_path:
       val_num_img: 
   
     satext_lv2:
@@ -37,7 +41,9 @@ data:
       hq_img_path: 
       ann_path: 
       vlm_captioner: 
-      vlm_caption_path: 
+      # choose from [0,1,2,3]
+      vlm_input_ques: 
+      vlm_caption_path:
       val_num_img: 
 
     satext_lv1:
@@ -45,17 +51,26 @@ data:
       hq_img_path:
       ann_path: 
       vlm_captioner: 
-      vlm_caption_path: 
+      # choose from [0,1,2,3]
+      vlm_input_ques: 
+      vlm_caption_path:
       val_num_img: 
 
-    # choose from [gt, null, red_tsm, pred_vlm]
+
+    # choose from [gt, null, pred_tsm, pred_vlm]
     # text_cond_prompt: "gt"
-    # text_cond_prompt: "null"
+    text_cond_prompt: "null"
     # text_cond_prompt: "pred_tsm"
     # text_cond_prompt: "pred_vlm"
+
+    ocr:
+      vis_ocr: True
+      # vis_timestep: [-1] # visualize all timesteps
+      vis_timestep: [0, 1, 2, 3, 4, 5, 10, 20, 30, 39]  # visualize selected time iter
     
     
-    
+
+    added_prompt: Cinematic, hyper sharpness, highly detailed, perfect without deformations, camera, hyper detailed photo - realistic maximum detail, 32k, Color Grading, ultra HD, extreme meticulous detailing, skin pore detailing.
     negative_prompt:
     save_prompts: True
     sample_times: 1
@@ -100,8 +115,10 @@ ckpt:
     dit: preset/models/dit4sr/dit4sr_q
     ts_module: preset/models/testr/totaltext_testr_R_50_polygon.pth
   resume_path:
-    dit: result_train/stage3/fp16_stage3_dit4sr-testr_1e-05-1e-04_lrbranch-attns_ocrloss0.01_descriptive_DiTfeat24/checkpoint-16000
-    ts_module: result_train/stage3/fp16_stage3_dit4sr-testr_1e-05-1e-04_lrbranch-attns_ocrloss0.01_descriptive_DiTfeat24/checkpoint-16000
+    # dit: result_train/stage3/fp16_stage3_dit4sr-testr_1e-05-1e-04_lrbranch-attns_ocrloss0.01_descriptive_DiTfeat24/checkpoint-16000
+    # ts_module: result_train/stage3/fp16_stage3_dit4sr-testr_1e-05-1e-04_lrbranch-attns_ocrloss0.01_descriptive_DiTfeat24/checkpoint-16000
+    dit: result_train/stage3/fp16_stage3_dit4sr-testr_5e-06-5e-05_lrbranch-attns_ocrloss0.01_descriptive_DiTfeat24/checkpoint-60000
+    ts_module: result_train/stage3/fp16_stage3_dit4sr-testr_5e-06-5e-05_lrbranch-attns_ocrloss0.01_descriptive_DiTfeat24/checkpoint-60000
 
 
 
@@ -144,7 +161,7 @@ log:
     key: e32eed0c2509bf898b850b0065ab62345005fb73
     project_name: cvpr26_tair_extension
     server: 20
-    gpu: 7
-    msg:
+    gpu: 5
+    msg: ""
   log_dir: logs
 

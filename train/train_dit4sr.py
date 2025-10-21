@@ -137,13 +137,13 @@ def main(cfg):
     logger.info(f"  Gradient Accumulation steps = {cfg.train.gradient_accumulation_steps}")
     logger.info(f"  Total optimization steps = {tot_train_steps}")
 
-    logger.info("=== Parameter Names ===")
-    logger.info(f"  Frozen Params ({len(model_params['frozen_param_names'])}):")
-    for name in model_params['frozen_param_names']:
-        logger.info(f" FROZEN - {name}")
-    logger.info(f"  Trainable Params ({len(model_params['train_param_names'])}):")
-    for name in model_params['train_param_names']:
-        logger.info(f" TRAINING - {name}")
+    # logger.info("=== Parameter Names ===")
+    # logger.info(f"  Frozen Params ({len(model_params['frozen_param_names'])}):")
+    # for name in model_params['frozen_param_names']:
+    #     logger.info(f" FROZEN - {name}")
+    # logger.info(f"  Trainable Params ({len(model_params['train_param_names'])}):")
+    # for name in model_params['train_param_names']:
+    #     logger.info(f" TRAINING - {name}")
     
     
     # save trainable params as txt 
@@ -564,7 +564,7 @@ def main(cfg):
                                         cv2.putText(vis_pred, pred_txt, (pred_poly[0][0], pred_poly[0][1]-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1)
 
                                     gt_polys = val_polys           # b 16 2
-                                    gt_texts = val_text
+                                    gt_texts = val_gt_text
                                     for vis_img_idx in range(len(gt_polys)):
                                         gt_poly = gt_polys[vis_img_idx]   # 16 2
                                         # gt_poly = np.array(gt_poly.detach().cpu()).astype(np.int32)

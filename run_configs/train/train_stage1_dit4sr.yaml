@@ -21,28 +21,54 @@ data:
       lq_img_path: /mnt/dataset1/text_restoration/tair_published/real_text/LQ
       hq_img_path: /mnt/dataset1/text_restoration/tair_published/real_text/HQ
       ann_path: /mnt/dataset1/text_restoration/tair_published/real_text/realtext_ann.json
+      vlm_captioner: 
+      # choose from [0,1,2,3]
+      vlm_input_ques: 
+      vlm_caption_path: 
       val_num_img: 30
 
     satext_lv3:
       lq_img_path: /mnt/dataset1/text_restoration/SAMText_test_degradation/lv3
       hq_img_path: /mnt/dataset1/text_restoration/100K/test
       ann_path: /mnt/dataset1/text_restoration/100K/test/dataset.json
+      vlm_captioner: 
+      # choose from [0,1,2,3]
+      vlm_input_ques: 
+      vlm_caption_path: 
       val_num_img: 30
   
     satext_lv2:
       lq_img_path: /mnt/dataset1/text_restoration/SAMText_test_degradation/lv2
       hq_img_path: /mnt/dataset1/text_restoration/100K/test
       ann_path: /mnt/dataset1/text_restoration/100K/test/dataset.json
+      vlm_captioner: 
+      # choose from [0,1,2,3]
+      vlm_input_ques: 
+      vlm_caption_path: 
       val_num_img: 30
 
     satext_lv1:
       lq_img_path: /mnt/dataset1/text_restoration/SAMText_test_degradation/lv1
       hq_img_path: /mnt/dataset1/text_restoration/100K/test
       ann_path: /mnt/dataset1/text_restoration/100K/test/dataset.json
+      vlm_captioner: 
+      # choose from [0,1,2,3]
+      vlm_input_ques: 
+      vlm_caption_path: 
       val_num_img: 30
+    
+    # choose from [gt, null, red_tsm, pred_vlm]
+    # text_cond_prompt: "gt"
+    text_cond_prompt: "null"
+    # text_cond_prompt: "pred_tsm"
+    # text_cond_prompt: "pred_vlm"
 
-    use_satext_gtprompt:
-    use_nullprompt: True
+    ocr:
+      vis_ocr: True
+      # vis_timestep: [-1] # visualize all timesteps
+      vis_timestep: [0, 1, 2, 3, 4, 5, 10, 20, 30, 39]  # visualize selected time iter 
+
+
     added_prompt: "Cinematic, hyper sharpness, highly detailed, perfect without deformations, camera, hyper detailed photo - realistic maximum detail, 32k, Color Grading, ultra HD, extreme meticulous detailing, skin pore detailing." 
     negative_prompt:
     save_prompts: True
@@ -86,9 +112,10 @@ ckpt:
     tokenizer: preset/models/stable-diffusion-3.5-medium
     text_encoder: preset/models/stable-diffusion-3.5-medium
     dit: preset/models/dit4sr/dit4sr_q
-    ts_module: preset/models/testr/totaltext_testr_R_50_polygon.pth
+    ts_module: 
   resume_path:
-    dit:
+    dit: 
+    ts_module: 
 
 
 train:
@@ -98,7 +125,8 @@ train:
   finetune: [lrbranch, attns]
   batch_size: 1
   num_workers: 4
-  num_train_epochs: 300
+  # num_train_epochs: 50  # 330k
+  num_train_epochs: 10  # 60k
   max_train_steps: 
   mixed_precision: 'fp16'
   # mixed_precision: 'no'
@@ -109,7 +137,7 @@ train:
   max_grad_norm: 1.0
   set_grads_to_none: False
   gradient_checkpointing: True
-  gradient_accumulation_steps: 8
+  gradient_accumulation_steps: 16
   scale_lr: False
   use_8bit_adam: False
   ocr_loss_weight: 
@@ -120,7 +148,7 @@ val:
 
 
 save:
-  output_dir: ./result_train
+  output_dir: ./result_train/stage1
   checkpointing_steps: 2000
 
 
@@ -130,7 +158,7 @@ log:
     key: e32eed0c2509bf898b850b0065ab62345005fb73
     project_name: cvpr26_tair_extension
     server: 20
-    gpu: 3
+    gpu: 4
     msg: DiTfeat24
   log_dir: logs
 

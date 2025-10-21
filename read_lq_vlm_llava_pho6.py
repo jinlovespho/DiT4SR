@@ -7,18 +7,12 @@ from transformers import AutoProcessor, LlavaForConditionalGeneration
 
 
 
-dataset_list = [
-    'realtext', 
-    'satext_lv1', 
+dataset_list = [ 
     'satext_lv2', 
-    'satext_lv3',
 ]
 
 lq_path_list = [
-    '/mnt/dataset1/text_restoration/tair_published/real_text/LQ',
-    '/mnt/dataset1/text_restoration/SAMText_test_degradation/lv1',
     '/mnt/dataset1/text_restoration/SAMText_test_degradation/lv2',
-    '/mnt/dataset1/text_restoration/SAMText_test_degradation/lv3',
     
 ]
 
@@ -47,12 +41,13 @@ for dataset, lq_path in zip(dataset_list, lq_path_list):
     lq_imgs = sorted(glob.glob(f'{lq_path}/*.jpg'))
     
     # load vlm
-    model_size_list=[7, 13]
+    # model_size_list=[7, 13]
+    model_size_list=[13]
     for model_size in model_size_list:
         
         print(f'llava_{model_size}b')
         model = LlavaForConditionalGeneration.from_pretrained(f"llava-hf/llava-1.5-{model_size}b-hf", torch_dtype=torch.float16, device_map="auto")
-        processor = AutoProcessor.from_pretrained(f"llava-hf/llava-1.5-{model_size}b-hf")
+        processor = AutoProcessor.from_pretrained(f"llava-hf/llava-1.5-{model_size}b-hf", use_fast=True)
 
         for q_idx, question in enumerate(question_list):
                 
@@ -84,7 +79,7 @@ for dataset, lq_path in zip(dataset_list, lq_path_list):
 
 
                 # Generate
-                generate_ids = model.generate(**inputs, max_new_tokens=30)
+                generate_ids = model.generate(**inputs, max_new_tokens=200)
                 output = processor.batch_decode(generate_ids, skip_special_tokens=True)
                 # print(output[0])
                 # print('-'*50)
@@ -92,7 +87,8 @@ for dataset, lq_path in zip(dataset_list, lq_path_list):
                 print(output_result)
                 
                 # save as txt file
-                save_path = f"result_vlm/lq_caption/{dataset}_ques{q_idx}/llava_{model_size}b"
+                # save_path = f"result_vlm/lq_caption/{dataset}_ques{q_idx}/llava_{model_size}b"
+                save_path = f"result_vlm/lq_caption/{dataset}_Englishques{q_idx}/llava_{model_size}b"
                 os.makedirs(save_path, exist_ok=True)
                 txt_save_path = f"{save_path}/{lq_id}.txt"
                 with open(txt_save_path, 'w') as file:

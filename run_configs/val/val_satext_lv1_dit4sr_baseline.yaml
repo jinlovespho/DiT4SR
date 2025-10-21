@@ -14,24 +14,25 @@ data:
 
 
   val:
-    eval_list: [realtext]
+    eval_list: [satext_lv1]
 
     realtext:
-      lq_img_path: /mnt/dataset1/text_restoration/tair_published/real_text/LQ
-      hq_img_path: /mnt/dataset1/text_restoration/tair_published/real_text/HQ
-      ann_path: /mnt/dataset1/text_restoration/tair_published/real_text/realtext_ann.json
-      vlm_captioner: llava_7b
-      # choose from [0,1,2,3]
-      vlm_input_ques: 3
-      # vlm_caption_path: /mnt/dataset1/text_restoration/100K/text_prompt/test/realtext
-      vlm_caption_path: result_vlm/lq_caption/realtext
-      val_num_img: 847
-
-    satext_lv3:
       lq_img_path: 
       hq_img_path: 
       ann_path: 
       vlm_captioner: 
+      # choose from [0,1,2,3]
+      vlm_input_ques: 
+      vlm_caption_path: 
+      val_num_img: 
+
+    satext_lv3:
+      lq_img_path: 
+      hq_img_path:
+      ann_path:
+      vlm_captioner: 
+      # choose from [0,1,2,3]
+      vlm_input_ques: 
       vlm_caption_path: 
       val_num_img: 
   
@@ -40,35 +41,39 @@ data:
       hq_img_path: 
       ann_path: 
       vlm_captioner: 
+      # choose from [0,1,2,3]
+      vlm_input_ques: 
       vlm_caption_path: 
       val_num_img: 
 
     satext_lv1:
-      lq_img_path: 
-      hq_img_path:
-      ann_path: 
-      vlm_captioner: 
-      vlm_caption_path: 
-      val_num_img: 
+      lq_img_path: /mnt/dataset1/text_restoration/SAMText_test_degradation/lv1
+      hq_img_path: /mnt/dataset1/text_restoration/100K/test
+      ann_path: /mnt/dataset1/text_restoration/100K/test/dataset.json
+      vlm_captioner: llava_7b
+      # choose from [0,1,2,3]
+      vlm_input_ques: 3
+      vlm_caption_path: result_vlm/lq_caption/satext_lv1
+      val_num_img: 1000
 
 
-    # choose from [gt, null, red_tsm, pred_vlm]
+     # choose from [gt, null, red_tsm, pred_vlm]
     # text_cond_prompt: "gt"
-    # text_cond_prompt: "null"
+    text_cond_prompt: "null"
     # text_cond_prompt: "pred_tsm"
-    text_cond_prompt: "pred_vlm"
+    # text_cond_prompt: "pred_vlm"
 
     ocr:
       vis_ocr: False
       vis_timestep: 
     
+
     added_prompt: Cinematic, hyper sharpness, highly detailed, perfect without deformations, camera, hyper detailed photo - realistic maximum detail, 32k, Color Grading, ultra HD, extreme meticulous detailing, skin pore detailing.
     negative_prompt:
     save_prompts: True
     sample_times: 1
     guidance_scale: 1.0
     start_point: lr
-    # start_point: noise
     latent_tiled_size: 64
     latent_tiled_overlap: 24
     upscale: 4
@@ -148,11 +153,10 @@ save:
 
 log:
   tracker: 
-    report_to: wandb
+    report_to: wandb 
     key: e32eed0c2509bf898b850b0065ab62345005fb73
     project_name: cvpr26_tair_extension
     server: 20
-    gpu: 6
-    # msg: added_prompt
+    gpu: 7
     msg: ""
   log_dir: logs
