@@ -58,8 +58,8 @@ data:
 
 
     # choose from [gt, null, pred_tsm, pred_vlm]
-    # text_cond_prompt: "gt"
-    text_cond_prompt: "null"
+    text_cond_prompt: "gt"
+    # text_cond_prompt: "null"
     # text_cond_prompt: "pred_tsm"
     # text_cond_prompt: "pred_vlm"
 

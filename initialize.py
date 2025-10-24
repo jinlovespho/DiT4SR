@@ -192,12 +192,28 @@ def load_val_data(val_data):
         hq_id = hq.split('/')[-1].split('.')[0]
         ann_id = ann[0]
         assert lq_id == hq_id == ann_id
-        
 
+        # eval for specifc ids         
+        if (len(val_data.val_img_id) != 0) and (lq_id not in val_data.val_img_id):
+            continue 
+        
+        
+        # # load precomputed vlm captions
+        # if (val_data.vlm_captioner is not None) and (val_data.vlm_caption_path is not None):
+        #     breakpoint()
+        #     dataset = val_data.vlm_caption_path.split('/')[-1]
+        #     vlm_captions_txt = sorted(glob.glob(f"{val_data.vlm_caption_path}/{dataset}_Englishques{str(val_data.vlm_input_ques)}/{val_data.vlm_captioner}/*.txt"))
+        #     vlm_caption_txt = vlm_captions_txt[val_idx]
+        #     vlm_cap_id = vlm_caption_txt.split('/')[-1].split('.')[0]
+        #     assert vlm_cap_id == lq_id == hq_id == ann_id
+        #     with open(f'{vlm_caption_txt}', 'r') as f:
+        #         vlm_cap = f.read().strip()
+        # else:
+        #     vlm_cap = None
+        
         # load precomputed vlm captions
-        if (val_data.vlm_captioner is not None) and (val_data.vlm_caption_path is not None):
-            dataset = val_data.vlm_caption_path.split('/')[-1]
-            vlm_captions_txt = sorted(glob.glob(f"{val_data.vlm_caption_path}/{dataset}_Englishques{str(val_data.vlm_input_ques)}/{val_data.vlm_captioner}/*.txt"))
+        if val_data.vlm_caption_path is not None:
+            vlm_captions_txt = sorted(glob.glob(f"{val_data.vlm_caption_path}/*.txt"))
             vlm_caption_txt = vlm_captions_txt[val_idx]
             vlm_cap_id = vlm_caption_txt.split('/')[-1].split('.')[0]
             assert vlm_cap_id == lq_id == hq_id == ann_id

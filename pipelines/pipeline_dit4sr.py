@@ -1064,6 +1064,7 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
                     f.write(f'[init prompt]: {prompt}\n\n')
 
 
+            print('use_cfg: ', self.do_classifier_free_guidance)
             val_ocr_result=[]
             for i, t in enumerate(timesteps):
                 if self.interrupt:
@@ -1071,7 +1072,6 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
                 # latent_model_input = torch.cat([latents, control_image], dim=1)
                 latent_model_input = latents    # b 16 64 64
 
-                # breakpoint()
                 # expand the latents if we are doing classifier free guidance
                 latent_model_input = torch.cat([latent_model_input] * 2) if self.do_classifier_free_guidance else latent_model_input
                 # broadcast to batch dimension in a way that's compatible with ONNX/Core ML
@@ -1079,7 +1079,6 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
 
                 if h*w<=tile_size*tile_size: # tiled latent input
 
-                        
                     # TEXTUAL PROMPT GUIDANCE (TSM)
                     if (i>0) and (cfg.data.val.text_cond_prompt == 'pred_tsm') and ('testr' in cfg.train.model):
                         prompt_embeds_input = prompt_embeds_tsm     # prompt guidance after one timestep
@@ -1088,19 +1087,18 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
                         
                     
                     if negative_prompt_embeds is not None:
-                        # negative_prompt_embeds_input =b torch.cat([negative_prompt_embeds, image_embedding], dim=-2)
                         negative_prompt_embeds_input = negative_prompt_embeds
-                    if self.do_classifier_free_guidance:
-                        prompt_embeds_input = torch.cat([negative_prompt_embeds_input, prompt_embeds_input], dim=0)
-                        pooled_prompt_embeds_input = torch.cat([negative_pooled_prompt_embeds, pooled_prompt_embeds], dim=0)
-                    else:
                         
+                        
+                    if self.do_classifier_free_guidance:
+                        prompt_embeds_input = torch.cat([negative_prompt_embeds_input, prompt_embeds_input], dim=0)             # (2, 333, 4096)
+                        pooled_prompt_embeds_input = torch.cat([negative_pooled_prompt_embeds, pooled_prompt_embeds], dim=0)    # (2, 2048)
+                    else:
                         # # TEXTUAL PROMPT GUIDANCE (TSM)
                         if (i>0) and (cfg.data.val.text_cond_prompt == 'pred_tsm') and ('testr' in cfg.train.model):
                             pooled_prompt_embeds_input = pooled_prompt_embeds_tsm
                         else:
                             pooled_prompt_embeds_input = pooled_prompt_embeds
-                    
                     
                     # controlnet(s) inference
                     trans_out = self.transformer(
@@ -1354,7 +1352,7 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
                 # if XLA_AVAILABLE:
                 #     xm.mark_step()
                 
-                
+
         if output_type == "latent":
             image = latents
 
@@ -1363,12 +1361,12 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
             with torch.cuda.amp.autocast(enabled=True):
                 image = self.vae.decode(latents, return_dict=False)[0]  # b 3 512 512 
             image = self.image_processor.postprocess(image, output_type=output_type)
-
+        
         # Offload all models
         self.maybe_free_model_hooks()
 
 
-        if not return_dict:
+        if not return_dict:  # t
             if 'testr' in cfg.train.model:
                 return (image, val_ocr_result)
             else:

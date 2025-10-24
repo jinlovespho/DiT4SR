@@ -26,6 +26,7 @@ def adain_color_fix(target: Image, source: Image):
 
     return result_image
 
+
 def wavelet_color_fix(target: Image, source: Image):
     # Convert images to tensors
     to_tensor = ToTensor()
@@ -40,6 +41,7 @@ def wavelet_color_fix(target: Image, source: Image):
     result_image = to_image(result_tensor.squeeze(0).clamp_(0.0, 1.0))
 
     return result_image
+
 
 def calc_mean_std(feat: Tensor, eps=1e-5):
     """Calculate mean and std for adaptive_instance_normalization.

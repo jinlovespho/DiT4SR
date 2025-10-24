@@ -5,6 +5,7 @@ import sys
 sys.path.append(os.getcwd())
 
 from accelerate import Accelerator
+from accelerate.utils import set_seed
 from accelerate.logging import get_logger
 
 import torch
@@ -24,6 +25,7 @@ import initialize
 from dataloaders.utils import encode, decode
 from pipelines.pipeline_dit4sr import StableDiffusion3ControlNetPipeline
 
+from utils.wavelet_color_fix import wavelet_color_fix, adain_color_fix
 
 
 logger = get_logger(__name__)
@@ -32,9 +34,15 @@ logger = get_logger(__name__)
 def main(cfg):
     
     
+    # global reproducability
+    if cfg.init.seed is not None:
+        set_seed(cfg.init.seed)  # seeds Python, NumPy, and PyTorch globally
+    
+    
     # safety check 
     val_data_name = cfg.data.val.eval_list[0]
     assert val_data_name in ['realtext', 'satext_lv3', 'satext_lv2', 'satext_lv1']
+    
     
     
     # set experiment name
@@ -43,6 +51,9 @@ def main(cfg):
     else:
         exp_name = f'dit4sr_baseline'
         
+        
+    exp_name = f'{exp_name}__startpoint-{cfg.data.val.start_point}__alignmethod-{cfg.data.val.align_method}__cfg-{int(cfg.data.val.guidance_scale)}'
+    
     
     if cfg.data.val.text_cond_prompt == 'pred_vlm':
         
@@ -64,6 +75,7 @@ def main(cfg):
         
         # english focused input prompt
         question_list = [
+            'Please describe the actual objects in the image in a very detailed manner. Please do not include descriptions related to the focus and bokeh of this image. Please do not include descriptions like the background is blurred.',
             "OCR this image and transcribe only the English text.",
             "Read and transcribe all English text visible in this low-resolution image.",
             "Describe the contents of this blurry image, focusing only on any visible English text or characters.",
@@ -71,13 +83,13 @@ def main(cfg):
         ]
         
         cfg.vlm_input_ques = question_list[vlm_input_ques]
-        
-        exp_name = f'{exp_name}_{cfg.data.val.start_point}startpoint_{cfg.data.val.text_cond_prompt}prompt_{vlm_captioner}_ques{str(vlm_input_ques)}'
+        exp_name = f'{exp_name}__{cfg.data.val.text_cond_prompt}-prompt__{vlm_captioner}__ques-{str(vlm_input_ques)}'
     
     else:
-        exp_name = f'{exp_name}_{cfg.data.val.start_point}startpoint_{cfg.data.val.text_cond_prompt}prompt'
+        exp_name = f'{exp_name}__{cfg.data.val.text_cond_prompt}-prompt'
     
-    exp_name = f'{exp_name}_{cfg.log.tracker.msg}'
+    
+    exp_name = f'{exp_name}__{cfg.log.tracker.msg}'
     cfg.exp_name = exp_name
     print('- EXP NAME: ', exp_name)
 
@@ -88,12 +100,13 @@ def main(cfg):
     
     # set accelerator and wandb 
     accelerator = Accelerator(mixed_precision=cfg.train.mixed_precision)
-    wandb.login(key=cfg.log.tracker.key)
-    wandb.init(
-        project=cfg.log.tracker.project_name,
-        name=f'VAL_{val_data_name}_serv{str(cfg.log.tracker.server)}gpu{str(cfg.log.tracker.gpu)}_{exp_name}',
-        config=OmegaConf.to_container(cfg, resolve=True)
-    )
+    if accelerator.is_main_process and cfg.log.tracker.report_to == 'wandb':
+        wandb.login(key=cfg.log.tracker.key)
+        wandb.init(
+            project=cfg.log.tracker.project_name,
+            name=f'VAL__{cfg.save.output_dir.split("/")[-1]}__{val_data_name}__serv{str(cfg.log.tracker.server)}gpu{str(cfg.log.tracker.gpu)}__{exp_name}',
+            config=OmegaConf.to_container(cfg, resolve=True)
+        )
     
 
     # load val data
@@ -148,17 +161,30 @@ def main(cfg):
         metrics[f'{val_data_name}_musiq'] = []
         metrics[f'{val_data_name}_maniqa'] = []
         metrics[f'{val_data_name}_clipiqa'] = []
+        
+        # min max normalized results 
+        metrics[f'{val_data_name}_psnr_norm'] = []
+        metrics[f'{val_data_name}_ssim_norm'] = []
+        metrics[f'{val_data_name}_lpips_norm'] = []
+        metrics[f'{val_data_name}_dists_norm'] = []
+        metrics[f'{val_data_name}_niqe_norm'] = []
+        metrics[f'{val_data_name}_musiq_norm'] = []
+        metrics[f'{val_data_name}_maniqa_norm'] = []
+        metrics[f'{val_data_name}_clipiqa_norm'] = []
 
 
-        for val_sample in val_data:
-
-            # set seed
-            if accelerator.is_main_process:
+        for sample_idx, val_sample in enumerate(val_data):
+            
+            print('-------------------------------------------------')
+            print(f'{val_data_name} - {sample_idx+1}/{len(val_data)}')
+            
+            generator = None
+            if accelerator.is_main_process and cfg.init.seed is not None:
                 generator = torch.Generator(device=accelerator.device)
-                if cfg.init.seed is not None:
-                    generator.manual_seed(cfg.init.seed)
+                generator.manual_seed(cfg.init.seed)
 
-            # get anns
+
+            # load val anns
             val_lq_path = val_sample['lq_path']
             val_hq_path = val_sample['hq_path']
             val_gt_text = val_sample['text']
@@ -167,19 +193,24 @@ def main(cfg):
             val_img_id = val_sample['img_id']
             val_vlm_cap = val_sample['vlm_cap']
             
+            
+            # process lq image 
+            val_lq_pil = Image.open(val_lq_path).convert("RGB") # 128 128 
+            ori_width, ori_height = val_lq_pil.size
+            rscale = 4  # upscale x4
+            # for shortest side smaller than 128, resize
+            if ori_width < 512//rscale or ori_height < 512//rscale:
+                scale = (512//rscale)/min(ori_width, ori_height)
+                tmp_image = val_lq_pil.resize((int(scale*ori_width), int(scale*ori_height)),Image.BICUBIC)
+                val_lq_pil = tmp_image
+            val_lq_pil = val_lq_pil.resize((val_lq_pil.size[0]*rscale, val_lq_pil.size[1]*rscale), Image.BICUBIC)
+            val_lq_pil = val_lq_pil.resize((val_lq_pil.size[0]//8*8, val_lq_pil.size[1]//8*8), Image.BICUBIC)
+            
 
-            # place lq on cuda
-            val_lq = T.ToTensor()(Image.open(val_lq_path)).to(device=accelerator.device, dtype=weight_dtype).unsqueeze(dim=0)   # 1 3 128 128 
-            val_lq = F.interpolate(val_lq, (512,512), mode='bilinear', align_corners=False) # 1 3 512 512 
-            val_lq = (val_lq - val_lq.min()) / (val_lq.max() - val_lq.min() + 1e-8) # [0,1]
-            val_lq = val_lq * 2. - 1.   # [-1,1]
             
-            
-            # place gt to cuda
-            val_gt = T.ToTensor()(Image.open(val_hq_path)).to(device=accelerator.device, dtype=weight_dtype).unsqueeze(dim=0)   # 1 3 128 128 
-            val_gt = (val_gt - val_gt.min()) / (val_gt.max() - val_gt.min() + 1e-8)
-            val_gt = val_gt * 2. - 1.
-            
+            # -------------------------------------------------
+            #       input prompt to diffusion model
+            # -------------------------------------------------
             
             # gt prompt 
             if cfg.data.val.text_cond_prompt == 'gt':
@@ -188,7 +219,7 @@ def main(cfg):
                     val_init_prompt = [f'The image features the texts {", ".join(texts)} that appear clearly on signs, boards, buildings, or other objects.']
                 elif cfg.model.dit.text_condition.caption_style == 'tag':
                     val_init_prompt = [f"{', '.join(texts)}"]
-                    
+
             # text spotting module prompt
             elif cfg.data.val.text_cond_prompt == 'pred_tsm':
                 val_init_prompt = ['']
@@ -205,61 +236,124 @@ def main(cfg):
             if cfg.data.val.added_prompt is not None:
                 val_init_prompt = [f'{val_init_prompt[0]} {cfg.data.val.added_prompt}']
 
-            
-            neg_prompt = None 
+            # cfg negative prompt 
+            if cfg.data.val.negative_prompt is not None:
+                neg_prompt = cfg.data.val.negative_prompt
+            else:
+                neg_prompt = None 
+                
+                
+                
+                
         
-            
-            
-
-            # validation forward pass
+            # -------------------------------------------------
+            #       validation pipeline forward pass 
+            # -------------------------------------------------
             with torch.no_grad():
                 val_out = val_pipeline(
-                    prompt=val_init_prompt, control_image=val_lq, num_inference_steps=cfg.data.val.num_inference_steps, generator=generator, height=32, width=32,
+                    prompt=val_init_prompt[0], control_image=val_lq_pil, num_inference_steps=cfg.data.val.num_inference_steps, generator=generator, height=512, width=512,
                     guidance_scale=cfg.data.val.guidance_scale, negative_prompt=neg_prompt,
                     start_point=cfg.data.val.start_point, latent_tiled_size=cfg.data.val.latent_tiled_size, latent_tiled_overlap=cfg.data.val.latent_tiled_overlap,
-                    output_type = 'pt', return_dict=False, lq_id=val_img_id, val_data_name=val_data_name, cfg=cfg, mode='val'
+                    output_type = 'pil', return_dict=False, lq_id=val_img_id, val_data_name=val_data_name, cfg=cfg, mode='val'
                 )
             
-            # retrive validation results
-            val_restored_img = val_out[0]   # 1 3 512 512 [0,1]
-        
-        
+            
+            
+            
+            # retrieve restored image 
+            val_res_pil = val_out[0][0]   # 1 3 512 512 [0,1]
+            
+            
+            # post processing
+            if cfg.data.val.align_method is not None:                
+                if cfg.data.val.align_method == 'wavelet':
+                    val_res_pil = wavelet_color_fix(val_res_pil, val_lq_pil)
+                elif cfg.data.val.align_method == 'adain':
+                    val_res_pil = adain_color_fix(val_res_pil, val_lq_pil)
+            
+
             # Save only the restored image
-            res_save_path = f'{cfg.save.output_dir}/{val_data_name}/{exp_name}/final_restored_img'
-            os.makedirs(res_save_path, exist_ok=True)
-            save_image(val_restored_img, f'{res_save_path}/{val_img_id}.png')
+            val_res_save_path = f'{cfg.save.output_dir}/{val_data_name}/{exp_name}/final_restored_img'
+            os.makedirs(val_res_save_path, exist_ok=True)
+            val_res_pil.save(f'{val_res_save_path}/{val_img_id}.png')
             
 
-            # prepare visualization
-            val_save_path = f'{cfg.save.output_dir}/{val_data_name}/{exp_name}/final_result'
-            os.makedirs(val_save_path, exist_ok=True)
             
-            # # lq 
-            # val_lq_img = val_lq
-            # val_lq_img = (val_lq_img + 1.0) / 2.0
-            # gt 
-            val_gt_img = val_gt
-            val_gt_img = (val_gt_img + 1.0) / 2.0
-            # restored
-            val_res_img = val_restored_img.squeeze(dim=0).permute(1,2,0).cpu().detach().numpy()*255.0
-            val_res_img = val_res_img.astype(np.uint8)
+            
+            
+            # ---------------------------------------
+            #       image metric calculation
+            # ---------------------------------------
+            
+            # restored pil img -> tensor 
+            val_res_pt = T.ToTensor()(val_res_pil)
+            val_res_pt = val_res_pt.to(device=accelerator.device, dtype=torch.float32).unsqueeze(dim=0).clamp(0.0, 1.0)   # 1 3 512 512 
+            
+            # gt pil img -> tensor 
+            val_hq_pil = Image.open(val_hq_path).convert("RGB") 
+            val_hq_pt = T.ToTensor()(val_hq_pil)
+            val_hq_pt = val_hq_pt.to(device=accelerator.device, dtype=torch.float32).unsqueeze(dim=0).clamp(0.0, 1.0)   # 1 3 512 512 
+            
+            # lq pil img -> tensor 
+            val_lq_pt = T.ToTensor()(val_lq_pil)
+            val_lq_pt = val_lq_pt.to(device=accelerator.device, dtype=torch.float32).unsqueeze(dim=0).clamp(0.0, 1.0)   # 1 3 512 512 
+            
+            
+            # append metric result
+            metrics[f'{val_data_name}_psnr'].append(torch.mean(metric_psnr(val_res_pt, val_hq_pt)).item())
+            metrics[f'{val_data_name}_ssim'].append(torch.mean(metric_ssim(val_res_pt, val_hq_pt)).item())
+            metrics[f'{val_data_name}_lpips'].append(torch.mean(metric_lpips(val_res_pt, val_hq_pt)).item())
+            metrics[f'{val_data_name}_dists'].append(torch.mean(metric_dists(val_res_pt, val_hq_pt)).item())
+            metrics[f'{val_data_name}_niqe'].append(torch.mean(metric_niqe(val_res_pt, val_hq_pt)).item())
+            metrics[f'{val_data_name}_musiq'].append(torch.mean(metric_musiq(val_res_pt, val_hq_pt)).item())
+            metrics[f'{val_data_name}_maniqa'].append(torch.mean(metric_maniqa(val_res_pt, val_hq_pt)).item())
+            metrics[f'{val_data_name}_clipiqa'].append(torch.mean(metric_clipiqa(val_res_pt, val_hq_pt)).item())
+            
+            
+            # min max normalization 
+            val_res_pt_norm = (val_res_pt-val_res_pt.min())/(val_res_pt.max()-val_res_pt.min())
+            val_hq_pt_norm = (val_hq_pt-val_hq_pt.min())/(val_hq_pt.max()-val_hq_pt.min())
+            val_lq_pt_norm = (val_lq_pt-val_lq_pt.min())/(val_lq_pt.max()-val_lq_pt.min())
+            
+            
+            # append metric result
+            metrics[f'{val_data_name}_psnr_norm'].append(torch.mean(metric_psnr(val_res_pt_norm, val_hq_pt_norm)).item())
+            metrics[f'{val_data_name}_ssim_norm'].append(torch.mean(metric_ssim(val_res_pt_norm, val_hq_pt_norm)).item())
+            metrics[f'{val_data_name}_lpips_norm'].append(torch.mean(metric_lpips(val_res_pt_norm, val_hq_pt_norm)).item())
+            metrics[f'{val_data_name}_dists_norm'].append(torch.mean(metric_dists(val_res_pt_norm, val_hq_pt_norm)).item())
+            metrics[f'{val_data_name}_niqe_norm'].append(torch.mean(metric_niqe(val_res_pt_norm, val_hq_pt_norm)).item())
+            metrics[f'{val_data_name}_musiq_norm'].append(torch.mean(metric_musiq(val_res_pt_norm, val_hq_pt_norm)).item())
+            metrics[f'{val_data_name}_maniqa_norm'].append(torch.mean(metric_maniqa(val_res_pt_norm, val_hq_pt_norm)).item())
+            metrics[f'{val_data_name}_clipiqa_norm'].append(torch.mean(metric_clipiqa(val_res_pt_norm, val_hq_pt_norm)).item())
+            
 
-            # preprocess
-            img_lq = val_lq.detach().permute(0,2,3,1).cpu().numpy() # b h w c
-            img_gt = val_gt.detach().permute(0,2,3,1).cpu().numpy()
 
-            vis_lq = img_lq[0] # h w c 
-            vis_lq = (vis_lq + 1.0)/2.0 * 255.0
+            # --------------------------------------------------
+            #       restoration and OCR visualization 
+            # --------------------------------------------------
+
+            # save path
+            val_res_ocr_save_path = f'{cfg.save.output_dir}/{val_data_name}/{exp_name}/final_result'
+            os.makedirs(val_res_ocr_save_path, exist_ok=True)
+            
+            
+            # hq img: pt -> np
+            vis_hq = val_hq_pt.squeeze(dim=0).permute(1,2,0).detach().cpu().numpy() * 255.0
+            vis_hq = vis_hq.astype(np.uint8)
+            vis_hq1 = vis_hq.copy()
+            vis_hq2 = vis_hq.copy()
+            
+            # restored img: pt -> np
+            vis_res = val_res_pt.squeeze(dim=0).permute(1,2,0).detach().cpu().numpy() * 255.0
+            vis_res = vis_res.astype(np.uint8)
+            
+            # lq img: pt -> np
+            vis_lq = val_lq_pt.squeeze(dim=0).permute(1,2,0).detach().cpu().numpy() * 255.0
             vis_lq = vis_lq.astype(np.uint8)
             vis_lq = vis_lq.copy()
             
-
-            vis_gt = img_gt[0] # h w c
-            vis_gt = (vis_gt + 1.0)/2.0 * 255.0
-            vis_gt = vis_gt.astype(np.uint8)
-            vis_gt2 = vis_gt.copy()
-
-
+                        
+                        
             # vis ocr result
             if ('testr' in cfg.train.model) and (cfg.data.val.ocr.vis_ocr):
                 
@@ -276,19 +370,19 @@ def main(cfg):
                 
                 
                 # ------------------ overlay gt ocr ------------------
-                vis_gt = vis_gt.copy()
+                vis_hq1 = vis_hq1.copy()
                 gt_polys = val_polys           # b 16 2
                 gt_texts = val_gt_text
                 for vis_img_idx in range(len(gt_polys)):
                     gt_poly = gt_polys[vis_img_idx]   # 16 2
                     gt_poly = gt_poly.astype(np.int32)
                     gt_txt = gt_texts[vis_img_idx]
-                    cv2.polylines(vis_gt, [gt_poly], isClosed=True, color=(0,255,0), thickness=2)
-                    cv2.putText(vis_gt, gt_txt, (gt_poly[0][0], gt_poly[0][1]-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1)
+                    cv2.polylines(vis_hq1, [gt_poly], isClosed=True, color=(0,255,0), thickness=2)
+                    cv2.putText(vis_hq1, gt_txt, (gt_poly[0][0], gt_poly[0][1]-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1)
                 # ------------------ overlay gt ocr ------------------
                 
                 
-                vis_result = cv2.hconcat([vis_gt, vis_lq])
+                vis_result = cv2.hconcat([vis_hq1, vis_lq])
                 # visualize ocr results per denoising timestep
                 for ocr_res in val_ocr_result:
                     timeiter, ocr_res = next(iter(ocr_res.items()))
@@ -313,50 +407,15 @@ def main(cfg):
                 cv2.imwrite(f'{val_ocr_save_path}/{val_img_id}.jpg', vis_result[:,:,::-1])
                 
                 # save w/ restored results
-                vis_result = cv2.hconcat([vis_lq, val_res_img, vis_gt2, vis_pred, vis_gt])
-                cv2.imwrite(f'{val_save_path}/{val_img_id}.jpg', vis_result[:,:,::-1])
+                vis_result = cv2.hconcat([vis_lq, vis_res, vis_hq2, vis_pred, vis_hq1])
+                cv2.imwrite(f'{val_res_ocr_save_path}/{val_img_id}.jpg', vis_result[:,:,::-1])
                                 
-                
-                # # visualize ocr results per denoising timestep
-                # for ocr_res in val_ocr_result:
-                #     timeiter, ocr_res = next(iter(ocr_res.items()))
-                #     timeiter = int(timeiter.split('_')[-1])
-                #     vis_polys = ocr_res.polygons.view(-1,16,2)  # b 16 2
-                #     vis_recs = ocr_res.recs                     # b 25
-                #     for vis_img_idx in range(len(vis_polys)):
-                #         pred_poly = vis_polys[vis_img_idx]   # 16 2
-                #         pred_poly = np.array(pred_poly.detach().cpu()).astype(np.int32)         
-                #         pred_rec = vis_recs[vis_img_idx]     # 25
-                #         pred_txt = decode(pred_rec.tolist())
-                #         cv2.polylines(vis_pred, [pred_poly], isClosed=True, color=(0,255,0), thickness=2)
-                #         cv2.putText(vis_pred, pred_txt, (pred_poly[0][0], pred_poly[0][1]-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1)
-                #     gt_polys = val_polys           # b 16 2
-                #     gt_texts = val_gt_text
-                #     for vis_img_idx in range(len(gt_polys)):
-                #         gt_poly = gt_polys[vis_img_idx]   # 16 2
-                #         # gt_poly = np.array(gt_poly.detach().cpu()).astype(np.int32)
-                #         gt_poly = gt_poly.astype(np.int32)
-                #         gt_txt = gt_texts[vis_img_idx]
-                #         cv2.polylines(vis_gt, [gt_poly], isClosed=True, color=(0,255,0), thickness=2)
-                #         cv2.putText(vis_gt, gt_txt, (gt_poly[0][0], gt_poly[0][1]-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1)
-                #     vis_result = cv2.hconcat([vis_lq, val_res_img, vis_gt2, vis_pred, vis_gt])
-                #     cv2.imwrite(f'{val_save_path}/{val_img_id}_timeiter{timeiter:04d}.jpg', vis_result[:,:,::-1])
-
             else:
                 ## -------------------- visualize only restored results -------------------- 
-                vis_result = cv2.hconcat([vis_lq, val_res_img, vis_gt2])
-                cv2.imwrite(f'{val_save_path}/{val_img_id}.jpg', vis_result[:,:,::-1])
+                vis_result = cv2.hconcat([vis_lq, vis_res, vis_hq2])
+                cv2.imwrite(f'{val_res_ocr_save_path}/{val_img_id}.jpg', vis_result[:,:,::-1])
 
 
-            # append val metrics
-            metrics[f'{val_data_name}_psnr'].append(torch.mean(metric_psnr(val_restored_img.to(torch.float32), torch.clamp((val_gt_img.to(torch.float32) + 1) / 2, min=0, max=1))).item())
-            metrics[f'{val_data_name}_ssim'].append(torch.mean(metric_ssim(val_restored_img.to(torch.float32), torch.clamp((val_gt_img.to(torch.float32) + 1) / 2, min=0, max=1))).item())
-            metrics[f'{val_data_name}_lpips'].append(torch.mean(metric_lpips(val_restored_img.to(torch.float32), torch.clamp((val_gt_img.to(torch.float32) + 1) / 2, min=0, max=1))).item())
-            metrics[f'{val_data_name}_dists'].append(torch.mean(metric_dists(val_restored_img.to(torch.float32), torch.clamp((val_gt_img.to(torch.float32) + 1) / 2, min=0, max=1))).item())
-            metrics[f'{val_data_name}_niqe'].append(torch.mean(metric_niqe(val_restored_img.to(torch.float32), torch.clamp((val_gt_img.to(torch.float32) + 1) / 2, min=0, max=1))).item())
-            metrics[f'{val_data_name}_musiq'].append(torch.mean(metric_musiq(val_restored_img.to(torch.float32), torch.clamp((val_gt_img.to(torch.float32) + 1) / 2, min=0, max=1))).item())
-            metrics[f'{val_data_name}_maniqa'].append(torch.mean(metric_maniqa(val_restored_img.to(torch.float32), torch.clamp((val_gt_img.to(torch.float32) + 1) / 2, min=0, max=1))).item())
-            metrics[f'{val_data_name}_clipiqa'].append(torch.mean(metric_clipiqa(val_restored_img.to(torch.float32), torch.clamp((val_gt_img.to(torch.float32) + 1) / 2, min=0, max=1))).item())
 
         # calculate total val metric
         tot_val_psnr = np.array(metrics[f'{val_data_name}_psnr']).mean()
@@ -368,18 +427,59 @@ def main(cfg):
         tot_val_maniqa = np.array(metrics[f'{val_data_name}_maniqa']).mean()
         tot_val_clipiqa = np.array(metrics[f'{val_data_name}_clipiqa']).mean()
 
-        # log total val metrics 
-        if accelerator.is_main_process and cfg.log.tracker.report_to == 'wandb':
-            wandb.log({
-                f'val_metric/{val_data_name}_val_psnr': tot_val_psnr,
-                f'val_metric/{val_data_name}_val_ssim': tot_val_ssim,
-                f'val_metric/{val_data_name}_val_lpips': tot_val_lpips,
-                f'val_metric/{val_data_name}_val_dists': tot_val_dists,
-                f'val_metric/{val_data_name}_val_niqe': tot_val_niqe,
-                f'val_metric/{val_data_name}_val_musiq': tot_val_musiq,
-                f'val_metric/{val_data_name}_val_maniqa': tot_val_maniqa,
-                f'val_metric/{val_data_name}_val_clipiqa': tot_val_clipiqa,
-            })
+
+        # calculate total val metric for min-max normalized images
+        tot_val_psnr_norm = np.array(metrics[f'{val_data_name}_psnr_norm']).mean()
+        tot_val_ssim_norm = np.array(metrics[f'{val_data_name}_ssim_norm']).mean()
+        tot_val_lpips_norm = np.array(metrics[f'{val_data_name}_lpips_norm']).mean()
+        tot_val_dists_norm = np.array(metrics[f'{val_data_name}_dists_norm']).mean()
+        tot_val_niqe_norm = np.array(metrics[f'{val_data_name}_niqe_norm']).mean()
+        tot_val_musiq_norm = np.array(metrics[f'{val_data_name}_musiq_norm']).mean()
+        tot_val_maniqa_norm = np.array(metrics[f'{val_data_name}_maniqa_norm']).mean()
+        tot_val_clipiqa_norm = np.array(metrics[f'{val_data_name}_clipiqa_norm']).mean()
+
+
+        # log total val metrics
+        if accelerator.is_main_process:
+            # neatly print results for both normal and normalized versions
+            print("\n" + "="*80)
+            print(f"Validation Results for '{val_data_name}' Dataset")
+            print("="*80)
+            print(f"{'Metric':<12} | {'Original':>12} | {'Min–Max Normalized':>20}")
+            print("-"*80)
+            print(f"{'PSNR':<12} | {tot_val_psnr:>12.4f} | {tot_val_psnr_norm:>20.4f}")
+            print(f"{'SSIM':<12} | {tot_val_ssim:>12.4f} | {tot_val_ssim_norm:>20.4f}")
+            print(f"{'LPIPS':<12} | {tot_val_lpips:>12.4f} | {tot_val_lpips_norm:>20.4f}")
+            print(f"{'DISTS':<12} | {tot_val_dists:>12.4f} | {tot_val_dists_norm:>20.4f}")
+            print(f"{'NIQE':<12} | {tot_val_niqe:>12.4f} | {tot_val_niqe_norm:>20.4f}")
+            print(f"{'MUSIQ':<12} | {tot_val_musiq:>12.4f} | {tot_val_musiq_norm:>20.4f}")
+            print(f"{'MANIQA':<12} | {tot_val_maniqa:>12.4f} | {tot_val_maniqa_norm:>20.4f}")
+            print(f"{'CLIPIQA':<12} | {tot_val_clipiqa:>12.4f} | {tot_val_clipiqa_norm:>20.4f}")
+            print("="*80 + "\n")
+
+
+            # log to wandb if enabled
+            if cfg.log.tracker.report_to == 'wandb':
+                wandb.log({
+                    f'val_metric_orig_imgs/{val_data_name}_val_psnr': tot_val_psnr,
+                    f'val_metric_orig_imgs/{val_data_name}_val_ssim': tot_val_ssim,
+                    f'val_metric_orig_imgs/{val_data_name}_val_lpips': tot_val_lpips,
+                    f'val_metric_orig_imgs/{val_data_name}_val_dists': tot_val_dists,
+                    f'val_metric_orig_imgs/{val_data_name}_val_niqe': tot_val_niqe,
+                    f'val_metric_orig_imgs/{val_data_name}_val_musiq': tot_val_musiq,
+                    f'val_metric_orig_imgs/{val_data_name}_val_maniqa': tot_val_maniqa,
+                    f'val_metric_orig_imgs/{val_data_name}_val_clipiqa': tot_val_clipiqa,
+
+                    f'val_metric_normalized_imgs/{val_data_name}_val_psnr_norm': tot_val_psnr_norm,
+                    f'val_metric_normalized_imgs/{val_data_name}_val_ssim_norm': tot_val_ssim_norm,
+                    f'val_metric_normalized_imgs/{val_data_name}_val_lpips_norm': tot_val_lpips_norm,
+                    f'val_metric_normalized_imgs/{val_data_name}_val_dists_norm': tot_val_dists_norm,
+                    f'val_metric_normalized_imgs/{val_data_name}_val_niqe_norm': tot_val_niqe_norm,
+                    f'val_metric_normalized_imgs/{val_data_name}_val_musiq_norm': tot_val_musiq_norm,
+                    f'val_metric_normalized_imgs/{val_data_name}_val_maniqa_norm': tot_val_maniqa_norm,
+                    f'val_metric_normalized_imgs/{val_data_name}_val_clipiqa_norm': tot_val_clipiqa_norm,
+                })
+
 
 
 if __name__ == "__main__":
