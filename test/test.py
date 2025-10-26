@@ -52,7 +52,7 @@ def main(cfg):
         exp_name = f'dit4sr_baseline'
         
         
-    exp_name = f'{exp_name}__startpoint-{cfg.data.val.start_point}__alignmethod-{cfg.data.val.align_method}__cfg-{int(cfg.data.val.guidance_scale)}'
+    exp_name = f'{cfg.data.val.eval_region}__{exp_name}__startpoint-{cfg.data.val.start_point}__alignmethod-{cfg.data.val.align_method}__cfg-{int(cfg.data.val.guidance_scale)}'
     
     
     if cfg.data.val.text_cond_prompt == 'pred_vlm':
@@ -176,7 +176,7 @@ def main(cfg):
         for sample_idx, val_sample in enumerate(val_data):
             
             print('-------------------------------------------------')
-            print(f'{val_data_name} - {sample_idx+1}/{len(val_data)}')
+            print(f'{cfg.data.val.eval_region} - {val_data_name} - {sample_idx+1}/{len(val_data)} - using {cfg.data.val.text_cond_prompt}prompt') 
             
             generator = None
             if accelerator.is_main_process and cfg.init.seed is not None:
@@ -188,7 +188,7 @@ def main(cfg):
             val_lq_path = val_sample['lq_path']
             val_hq_path = val_sample['hq_path']
             val_gt_text = val_sample['text']
-            val_bbox = val_sample['bbox']
+            val_bbox = val_sample['bbox']       # xyxy
             val_polys = val_sample['poly']
             val_img_id = val_sample['img_id']
             val_vlm_cap = val_sample['vlm_cap']
@@ -286,7 +286,7 @@ def main(cfg):
             # ---------------------------------------
             
             # restored pil img -> tensor 
-            val_res_pt = T.ToTensor()(val_res_pil)
+            val_res_pt = T.ToTensor()(val_res_pil) 
             val_res_pt = val_res_pt.to(device=accelerator.device, dtype=torch.float32).unsqueeze(dim=0).clamp(0.0, 1.0)   # 1 3 512 512 
             
             # gt pil img -> tensor 
@@ -299,33 +299,101 @@ def main(cfg):
             val_lq_pt = val_lq_pt.to(device=accelerator.device, dtype=torch.float32).unsqueeze(dim=0).clamp(0.0, 1.0)   # 1 3 512 512 
             
             
-            # append metric result
-            metrics[f'{val_data_name}_psnr'].append(torch.mean(metric_psnr(val_res_pt, val_hq_pt)).item())
-            metrics[f'{val_data_name}_ssim'].append(torch.mean(metric_ssim(val_res_pt, val_hq_pt)).item())
-            metrics[f'{val_data_name}_lpips'].append(torch.mean(metric_lpips(val_res_pt, val_hq_pt)).item())
-            metrics[f'{val_data_name}_dists'].append(torch.mean(metric_dists(val_res_pt, val_hq_pt)).item())
-            metrics[f'{val_data_name}_niqe'].append(torch.mean(metric_niqe(val_res_pt, val_hq_pt)).item())
-            metrics[f'{val_data_name}_musiq'].append(torch.mean(metric_musiq(val_res_pt, val_hq_pt)).item())
-            metrics[f'{val_data_name}_maniqa'].append(torch.mean(metric_maniqa(val_res_pt, val_hq_pt)).item())
-            metrics[f'{val_data_name}_clipiqa'].append(torch.mean(metric_clipiqa(val_res_pt, val_hq_pt)).item())
-            
-            
-            # min max normalization 
-            val_res_pt_norm = (val_res_pt-val_res_pt.min())/(val_res_pt.max()-val_res_pt.min())
-            val_hq_pt_norm = (val_hq_pt-val_hq_pt.min())/(val_hq_pt.max()-val_hq_pt.min())
-            val_lq_pt_norm = (val_lq_pt-val_lq_pt.min())/(val_lq_pt.max()-val_lq_pt.min())
-            
-            
-            # append metric result
-            metrics[f'{val_data_name}_psnr_norm'].append(torch.mean(metric_psnr(val_res_pt_norm, val_hq_pt_norm)).item())
-            metrics[f'{val_data_name}_ssim_norm'].append(torch.mean(metric_ssim(val_res_pt_norm, val_hq_pt_norm)).item())
-            metrics[f'{val_data_name}_lpips_norm'].append(torch.mean(metric_lpips(val_res_pt_norm, val_hq_pt_norm)).item())
-            metrics[f'{val_data_name}_dists_norm'].append(torch.mean(metric_dists(val_res_pt_norm, val_hq_pt_norm)).item())
-            metrics[f'{val_data_name}_niqe_norm'].append(torch.mean(metric_niqe(val_res_pt_norm, val_hq_pt_norm)).item())
-            metrics[f'{val_data_name}_musiq_norm'].append(torch.mean(metric_musiq(val_res_pt_norm, val_hq_pt_norm)).item())
-            metrics[f'{val_data_name}_maniqa_norm'].append(torch.mean(metric_maniqa(val_res_pt_norm, val_hq_pt_norm)).item())
-            metrics[f'{val_data_name}_clipiqa_norm'].append(torch.mean(metric_clipiqa(val_res_pt_norm, val_hq_pt_norm)).item())
-            
+
+
+            if cfg.data.val.eval_region == 'crop':
+                # ----------------------------------------------
+                #   Eval on bbox cropped text regions
+                # ----------------------------------------------
+                bbox_metrics = {k: [] for k in ['psnr', 'ssim', 'lpips', 'dists', 'niqe', 'musiq', 'maniqa', 'clipiqa']}
+                bbox_metrics_norm = {k: [] for k in ['psnr_norm', 'ssim_norm', 'lpips_norm', 'dists_norm', 'niqe_norm', 'musiq_norm', 'maniqa_norm', 'clipiqa_norm']}
+                
+                MIN_SAFE_SIZE = 96  # empirically safe for NIQE and other full-reference metrics
+                
+                for bbox in val_bbox:
+                    x1, y1, x2, y2 = map(int, bbox)
+
+                    # Crop bbox region
+                    res_crop = val_res_pt[:, :, y1:y2, x1:x2]
+                    hq_crop = val_hq_pt[:, :, y1:y2, x1:x2]
+
+                    Hc, Wc = res_crop.shape[-2:]
+                    # print(f"Original crop size: {Hc}x{Wc}")
+
+                    # ---- Check and upsample if too small ----
+                    if Hc < MIN_SAFE_SIZE or Wc < MIN_SAFE_SIZE:
+                        # Compute uniform scaling factor to preserve aspect ratio
+                        crop_scale = max(MIN_SAFE_SIZE / Hc, MIN_SAFE_SIZE / Wc)
+                        new_h, new_w = int(round(Hc * crop_scale)), int(round(Wc * crop_scale))
+                        # print(f"🟡 Upsampling from {Hc}x{Wc} → {new_h}x{new_w}")
+                        res_crop = F.interpolate(res_crop, size=(new_h, new_w), mode='bilinear', align_corners=False)
+                        hq_crop  = F.interpolate(hq_crop,  size=(new_h, new_w), mode='bilinear', align_corners=False)
+
+
+                    # # visualize cropped texts 
+                    # save_image(val_res_pt, './img_res.jpg')
+                    # save_image(val_hq_pt, './img_hq.jpg')
+                    # save_image(res_crop, './img_res_crop.jpg')
+                    # save_image(hq_crop, './img_hq_crop.jpg')
+                    
+
+                    # --------- Original metrics on cropped region ---------
+                    bbox_metrics['psnr'].append(torch.mean(metric_psnr(res_crop, hq_crop)).item())
+                    bbox_metrics['ssim'].append(torch.mean(metric_ssim(res_crop, hq_crop)).item())
+                    bbox_metrics['lpips'].append(torch.mean(metric_lpips(res_crop, hq_crop)).item())
+                    bbox_metrics['dists'].append(torch.mean(metric_dists(res_crop, hq_crop)).item())
+                    bbox_metrics['niqe'].append(torch.mean(metric_niqe(res_crop, hq_crop)).item())
+                    bbox_metrics['musiq'].append(torch.mean(metric_musiq(res_crop, hq_crop)).item())
+                    bbox_metrics['maniqa'].append(torch.mean(metric_maniqa(res_crop, hq_crop)).item())
+                    bbox_metrics['clipiqa'].append(torch.mean(metric_clipiqa(res_crop, hq_crop)).item())
+
+
+                    # --------- Min–max normalization per cropped region ---------
+                    res_crop_norm = (res_crop - res_crop.min()) / (res_crop.max() - res_crop.min() + 1e-8)
+                    hq_crop_norm = (hq_crop - hq_crop.min()) / (hq_crop.max() - hq_crop.min() + 1e-8)
+
+                    bbox_metrics_norm['psnr_norm'].append(torch.mean(metric_psnr(res_crop_norm, hq_crop_norm)).item())
+                    bbox_metrics_norm['ssim_norm'].append(torch.mean(metric_ssim(res_crop_norm, hq_crop_norm)).item())
+                    bbox_metrics_norm['lpips_norm'].append(torch.mean(metric_lpips(res_crop_norm, hq_crop_norm)).item())
+                    bbox_metrics_norm['dists_norm'].append(torch.mean(metric_dists(res_crop_norm, hq_crop_norm)).item())
+                    bbox_metrics_norm['niqe_norm'].append(torch.mean(metric_niqe(res_crop_norm, hq_crop_norm)).item())
+                    bbox_metrics_norm['musiq_norm'].append(torch.mean(metric_musiq(res_crop_norm, hq_crop_norm)).item())
+                    bbox_metrics_norm['maniqa_norm'].append(torch.mean(metric_maniqa(res_crop_norm, hq_crop_norm)).item())
+                    bbox_metrics_norm['clipiqa_norm'].append(torch.mean(metric_clipiqa(res_crop_norm, hq_crop_norm)).item())
+
+
+                # Average metrics across all bounding boxes in this image
+                for key, vals in bbox_metrics.items():
+                    metrics[f'{val_data_name}_{key}'].append(np.mean(vals))
+                for key, vals in bbox_metrics_norm.items():
+                    metrics[f'{val_data_name}_{key}'].append(np.mean(vals))
+
+            elif cfg.data.val.eval_region == 'full':
+                # ----------------------------------------------
+                #   Eval on full image
+                # ----------------------------------------------
+                metrics[f'{val_data_name}_psnr'].append(torch.mean(metric_psnr(val_res_pt, val_hq_pt)).item())
+                metrics[f'{val_data_name}_ssim'].append(torch.mean(metric_ssim(val_res_pt, val_hq_pt)).item())
+                metrics[f'{val_data_name}_lpips'].append(torch.mean(metric_lpips(val_res_pt, val_hq_pt)).item())
+                metrics[f'{val_data_name}_dists'].append(torch.mean(metric_dists(val_res_pt, val_hq_pt)).item())
+                metrics[f'{val_data_name}_niqe'].append(torch.mean(metric_niqe(val_res_pt, val_hq_pt)).item())
+                metrics[f'{val_data_name}_musiq'].append(torch.mean(metric_musiq(val_res_pt, val_hq_pt)).item())
+                metrics[f'{val_data_name}_maniqa'].append(torch.mean(metric_maniqa(val_res_pt, val_hq_pt)).item())
+                metrics[f'{val_data_name}_clipiqa'].append(torch.mean(metric_clipiqa(val_res_pt, val_hq_pt)).item())
+
+                # Min–max normalization for full image
+                val_res_pt_norm = (val_res_pt - val_res_pt.min()) / (val_res_pt.max() - val_res_pt.min() + 1e-8)
+                val_hq_pt_norm = (val_hq_pt - val_hq_pt.min()) / (val_hq_pt.max() - val_hq_pt.min() + 1e-8)
+
+                metrics[f'{val_data_name}_psnr_norm'].append(torch.mean(metric_psnr(val_res_pt_norm, val_hq_pt_norm)).item())
+                metrics[f'{val_data_name}_ssim_norm'].append(torch.mean(metric_ssim(val_res_pt_norm, val_hq_pt_norm)).item())
+                metrics[f'{val_data_name}_lpips_norm'].append(torch.mean(metric_lpips(val_res_pt_norm, val_hq_pt_norm)).item())
+                metrics[f'{val_data_name}_dists_norm'].append(torch.mean(metric_dists(val_res_pt_norm, val_hq_pt_norm)).item())
+                metrics[f'{val_data_name}_niqe_norm'].append(torch.mean(metric_niqe(val_res_pt_norm, val_hq_pt_norm)).item())
+                metrics[f'{val_data_name}_musiq_norm'].append(torch.mean(metric_musiq(val_res_pt_norm, val_hq_pt_norm)).item())
+                metrics[f'{val_data_name}_maniqa_norm'].append(torch.mean(metric_maniqa(val_res_pt_norm, val_hq_pt_norm)).item())
+                metrics[f'{val_data_name}_clipiqa_norm'].append(torch.mean(metric_clipiqa(val_res_pt_norm, val_hq_pt_norm)).item())
+
 
 
             # --------------------------------------------------
@@ -445,6 +513,8 @@ def main(cfg):
             print("\n" + "="*80)
             print(f"Validation Results for '{val_data_name}' Dataset")
             print("="*80)
+            print(f"Eval region: {cfg.data.val.eval_region}")
+            print("-"*80)
             print(f"{'Metric':<12} | {'Original':>12} | {'Min–Max Normalized':>20}")
             print("-"*80)
             print(f"{'PSNR':<12} | {tot_val_psnr:>12.4f} | {tot_val_psnr_norm:>20.4f}")
@@ -461,23 +531,23 @@ def main(cfg):
             # log to wandb if enabled
             if cfg.log.tracker.report_to == 'wandb':
                 wandb.log({
-                    f'val_metric_orig_imgs/{val_data_name}_val_psnr': tot_val_psnr,
-                    f'val_metric_orig_imgs/{val_data_name}_val_ssim': tot_val_ssim,
-                    f'val_metric_orig_imgs/{val_data_name}_val_lpips': tot_val_lpips,
-                    f'val_metric_orig_imgs/{val_data_name}_val_dists': tot_val_dists,
-                    f'val_metric_orig_imgs/{val_data_name}_val_niqe': tot_val_niqe,
-                    f'val_metric_orig_imgs/{val_data_name}_val_musiq': tot_val_musiq,
-                    f'val_metric_orig_imgs/{val_data_name}_val_maniqa': tot_val_maniqa,
-                    f'val_metric_orig_imgs/{val_data_name}_val_clipiqa': tot_val_clipiqa,
+                    f'val_metric_{val_data_name}_orig_imgs/val_psnr': tot_val_psnr,
+                    f'val_metric_{val_data_name}_orig_imgs/val_ssim': tot_val_ssim,
+                    f'val_metric_{val_data_name}_orig_imgs/val_lpips': tot_val_lpips,
+                    f'val_metric_{val_data_name}_orig_imgs/val_dists': tot_val_dists,
+                    f'val_metric_{val_data_name}_orig_imgs/val_niqe': tot_val_niqe,
+                    f'val_metric_{val_data_name}_orig_imgs/val_musiq': tot_val_musiq,
+                    f'val_metric_{val_data_name}_orig_imgs/val_maniqa': tot_val_maniqa,
+                    f'val_metric_{val_data_name}_orig_imgs/val_clipiqa': tot_val_clipiqa,
 
-                    f'val_metric_normalized_imgs/{val_data_name}_val_psnr_norm': tot_val_psnr_norm,
-                    f'val_metric_normalized_imgs/{val_data_name}_val_ssim_norm': tot_val_ssim_norm,
-                    f'val_metric_normalized_imgs/{val_data_name}_val_lpips_norm': tot_val_lpips_norm,
-                    f'val_metric_normalized_imgs/{val_data_name}_val_dists_norm': tot_val_dists_norm,
-                    f'val_metric_normalized_imgs/{val_data_name}_val_niqe_norm': tot_val_niqe_norm,
-                    f'val_metric_normalized_imgs/{val_data_name}_val_musiq_norm': tot_val_musiq_norm,
-                    f'val_metric_normalized_imgs/{val_data_name}_val_maniqa_norm': tot_val_maniqa_norm,
-                    f'val_metric_normalized_imgs/{val_data_name}_val_clipiqa_norm': tot_val_clipiqa_norm,
+                    f'val_metric_{val_data_name}_normalized_imgs/val_psnr_norm': tot_val_psnr_norm,
+                    f'val_metric_{val_data_name}_normalized_imgs/val_ssim_norm': tot_val_ssim_norm,
+                    f'val_metric_{val_data_name}_normalized_imgs/val_lpips_norm': tot_val_lpips_norm,
+                    f'val_metric_{val_data_name}_normalized_imgs/val_dists_norm': tot_val_dists_norm,
+                    f'val_metric_{val_data_name}_normalized_imgs/val_niqe_norm': tot_val_niqe_norm,
+                    f'val_metric_{val_data_name}_normalized_imgs/val_musiq_norm': tot_val_musiq_norm,
+                    f'val_metric_{val_data_name}_normalized_imgs/val_maniqa_norm': tot_val_maniqa_norm,
+                    f'val_metric_{val_data_name}_normalized_imgs/val_clipiqa_norm': tot_val_clipiqa_norm,
                 })
 
 

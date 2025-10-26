@@ -70,6 +70,10 @@ data:
     ocr:
       vis_ocr: False
       vis_timestep: 
+    
+
+    # choose from ['crop', 'full']
+    eval_region: crop
 
 
 
@@ -77,13 +81,18 @@ data:
     negative_prompt: motion blur, noisy, dotted, bokeh, pointed, CG Style, 3D render, unreal engine, blurring, dirty, messy, worst quality, low quality, frames, watermark, signature, jpeg artifacts, deformed, lowres, chaotic
     save_prompts: True
     sample_times: 1
+    
+    # guidance_scale: 1.0
     guidance_scale: 8.0
+    
     start_point: noise
+    
     latent_tiled_size: 64
     latent_tiled_overlap: 24
     upscale: 4
     process_size: 512
     num_inference_steps: 40
+    
     # choose from [adain, wavelet]
     align_method: adain
     # align_method: wavelet
@@ -155,7 +164,8 @@ val:
 
 save:
   # output_dir: ./result_val/few_eval
-  output_dir: ./result_val/full_eval
+  # output_dir: ./result_val/full_eval
+  output_dir: ./result_val_dit4sr_2nd/full_eval
   checkpointing_steps: 
 
 
@@ -163,6 +173,7 @@ log:
   tracker: 
     report_to: wandb 
     key: e32eed0c2509bf898b850b0065ab62345005fb73
+    # project_name: cvpr26_tair_extension
     project_name: cvpr26_tair2_val
     server: 20
     gpu: 6

@@ -22,7 +22,8 @@ data:
       ann_path: /mnt/dataset1/text_restoration/tair_published/real_text/realtext_ann.json
       vlm_captioner: llava13b
       vlm_input_ques: 0
-      vlm_caption_path: result_vlm/orig_dit4sr/realtext/llava13b_prompt
+      vlm_caption_path: 
+      # vlm_caption_path: result_vlm/orig_dit4sr/realtext/llava13b_prompt
       val_num_img: 847
       val_img_id: []
       # val_img_id: [Canon_41_x4_35_crop_0, Canon_81_x4_25_crop_0, DSC_0980_x4_21_crop_0, DSC_0984_x4_2_crop_0]
@@ -33,49 +34,64 @@ data:
       hq_img_path: 
       ann_path: 
       vlm_captioner: 
+      vlm_input_ques: 
       vlm_caption_path: 
       val_num_img: 
+      val_img_id: []
   
     satext_lv2:
       lq_img_path: 
       hq_img_path: 
       ann_path: 
       vlm_captioner: 
+      vlm_input_ques: 
       vlm_caption_path: 
       val_num_img: 
+      val_img_id: []
 
     satext_lv1:
       lq_img_path: 
-      hq_img_path:
+      hq_img_path: 
       ann_path: 
       vlm_captioner: 
+      vlm_input_ques: 
       vlm_caption_path: 
       val_num_img: 
+      val_img_id: []
 
 
     # choose from [gt, null, red_tsm, pred_vlm]
-    # text_cond_prompt: "gt"
+    text_cond_prompt: "gt"
     # text_cond_prompt: "null"
     # text_cond_prompt: "pred_tsm"
-    text_cond_prompt: "pred_vlm"
+    # text_cond_prompt: "pred_vlm"
 
 
     ocr:
       vis_ocr: False
       vis_timestep: 
 
+    
+    # choose from ['crop', 'full']
+    eval_region: crop
+
 
     added_prompt: Cinematic, hyper sharpness, highly detailed, perfect without deformations, camera, hyper detailed photo - realistic maximum detail, 32k, Color Grading, ultra HD, extreme meticulous detailing, skin pore detailing.
     negative_prompt: motion blur, noisy, dotted, bokeh, pointed, CG Style, 3D render, unreal engine, blurring, dirty, messy, worst quality, low quality, frames, watermark, signature, jpeg artifacts, deformed, lowres, chaotic
     save_prompts: True
     sample_times: 1
-    guidance_scale: 8.0
+
+    guidance_scale: 1.0
+    # guidance_scale: 8.0
+
     start_point: noise
+
     latent_tiled_size: 64
     latent_tiled_overlap: 24
     upscale: 4
     process_size: 512
     num_inference_steps: 40
+    
     # choose from [adain, wavelet]
     align_method: adain
     # align_method: wavelet
@@ -147,7 +163,8 @@ val:
 
 save:
   # output_dir: ./result_val/few_eval
-  output_dir: ./result_val/full_eval
+  # output_dir: ./result_val/full_eval
+  output_dir: ./result_val_dit4sr_2nd/full_eval
   checkpointing_steps: 
 
 
@@ -155,8 +172,9 @@ log:
   tracker: 
     report_to: wandb
     key: e32eed0c2509bf898b850b0065ab62345005fb73
+    # project_name: cvpr26_tair_extension
     project_name: cvpr26_tair2_val
     server: 20
-    gpu: 7
+    gpu: 3
     msg: ""
   log_dir: logs

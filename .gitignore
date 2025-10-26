@@ -195,6 +195,7 @@ train_result/
 *.jpg
 result_train/
 result_val/
-result_vlm/
 vis/
 vis2/
+
+result_val_dit4sr_2nd
