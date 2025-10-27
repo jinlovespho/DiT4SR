@@ -25,8 +25,10 @@ data:
       vlm_caption_path: 
       # vlm_caption_path: result_vlm/orig_dit4sr/realtext/llava13b_prompt
       val_num_img: 847
-      val_img_id: []
+      # val_img_id: []
       # val_img_id: [Canon_41_x4_35_crop_0, Canon_81_x4_25_crop_0, DSC_0980_x4_21_crop_0, DSC_0984_x4_2_crop_0]
+      val_img_id: [Canon_001_HR_crop_1, Canon_21_x4_5_crop_0, Canon_24_x4_21_crop_0, Canon_30_x4_44_crop_0, Canon_31_x4_52_crop_0, Canon_32_x4_21_crop_0, Canon_32_x4_23_crop_0, Canon_33_x4_33_crop_0, Canon_37_x4_45_crop_0, Canon_41_x4_32_crop_0, Canon_41_x4_35_crop_0, DSC_0972_x4_13_crop_0, DSC_0984_x4_2_crop_0, DSC_0984_x4_6_crop_0, DSC_1023_x4_16_crop_0, DSC_1330_x4_4_crop_0, DSC_1342_x4_6_crop_0,  ]
+
 
 
     satext_lv3:
@@ -61,8 +63,8 @@ data:
 
 
     # choose from [gt, null, red_tsm, pred_vlm]
-    text_cond_prompt: "gt"
-    # text_cond_prompt: "null"
+    # text_cond_prompt: "gt"
+    text_cond_prompt: "null"
     # text_cond_prompt: "pred_tsm"
     # text_cond_prompt: "pred_vlm"
 
@@ -81,8 +83,8 @@ data:
     save_prompts: True
     sample_times: 1
 
-    # guidance_scale: 1.0
-    guidance_scale: 8.0
+    guidance_scale: 1.0
+    # guidance_scale: 8.0
 
     start_point: noise
 
@@ -129,6 +131,7 @@ ckpt:
     ts_module: preset/models/testr/totaltext_testr_R_50_polygon.pth
   resume_path:
     dit:
+    # dit: /mnt/dataset1/jinlovespho/cvpr26/DiT4SR/result_train/stage1/fp16_stage1_dit4sr_1e-05_lrbranch-attns_ocrlossNone_descriptive_DiTfeat24/checkpoint-34000
     ts_module: 
 
 
@@ -165,7 +168,7 @@ save:
   # output_dir: ./result_val/few_eval
   # output_dir: ./result_val/full_eval
   # output_dir: ./result_val_dit4sr_2nd/full_eval
-  output_dir: ./result_val_dit4sr_2nd/full_eval/TMP
+  output_dir: ./result_val_dit4sr_2nd/few_eval/TMP
   checkpointing_steps: 
 
 
@@ -176,6 +179,6 @@ log:
     # project_name: cvpr26_tair_extension
     project_name: cvpr26_tair2_val
     server: 20
-    gpu: 5
+    gpu: 4
     msg: ""
   log_dir: logs

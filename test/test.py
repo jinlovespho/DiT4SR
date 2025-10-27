@@ -271,8 +271,6 @@ def main(cfg):
                 neg_prompt = None 
                 
                 
-                
-                
         
             # -------------------------------------------------
             #       validation pipeline forward pass 
@@ -503,7 +501,7 @@ def main(cfg):
             #         # Compute uniform scaling factor to preserve aspect ratio
             #         crop_scale = max(MIN_SAFE_SIZE / Hc, MIN_SAFE_SIZE / Wc)
             #         new_h, new_w = int(round(Hc * crop_scale)), int(round(Wc * crop_scale))
-            #         # print(f"🟡 Upsampling from {Hc}x{Wc} → {new_h}x{new_w}")
+            #         # print(f" Upsampling from {Hc}x{Wc} → {new_h}x{new_w}")
             #         res_crop = F.interpolate(res_crop, size=(new_h, new_w), mode='bilinear', align_corners=False)
             #         hq_crop  = F.interpolate(hq_crop,  size=(new_h, new_w), mode='bilinear', align_corners=False)
 

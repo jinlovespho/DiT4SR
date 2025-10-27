@@ -24,6 +24,7 @@ from diffusers.models.attention_processor import Attention
 from diffusers.models.embeddings import SinusoidalPositionalEmbedding
 from diffusers.models.normalization import AdaLayerNorm, AdaLayerNormContinuous, AdaLayerNormZero, RMSNorm, SD35AdaLayerNormZeroX
 
+
 def _chunked_feed_forward(ff: nn.Module, hidden_states: torch.Tensor, chunk_dim: int, chunk_size: int):
     # "feed_forward_chunk_size" can be used to save memory
     if hidden_states.shape[chunk_dim] % chunk_size != 0:
@@ -321,12 +322,22 @@ class JointTransformerBlock(nn.Module):
         else:   # t
             ff_output = self.ff(norm_hidden_states)     # b 2048 1536
         ff_output = gate_mlp.unsqueeze(1) * ff_output
-
-        hidden_states = hidden_states + ff_output
-
+        
+        
+        # BEFORE FF
         if extract_feat:
             # extract lq added hq feature
-            trans_blk_out['extract_feat'] = hidden_states[:,:n//2]
+            trans_blk_out['extract_feat'] = ff_output[:,:n//2]
+
+
+        hidden_states = hidden_states + ff_output
+        
+
+        # AFTER HIDDEN_STATES
+        # if extract_feat:
+        #     # extract lq added hq feature
+        #     trans_blk_out['extract_feat'] = hidden_states[:,:n//2]
+            
 
         # Process attention outputs for the `encoder_hidden_states`.
         if self.context_pre_only:
@@ -350,6 +361,7 @@ class JointTransformerBlock(nn.Module):
             return encoder_hidden_states, hidden_states, trans_blk_out
         else:
             return encoder_hidden_states, hidden_states
+        
         
 class AttentionZero(Attention):
     def __init__(self,

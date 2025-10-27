@@ -101,22 +101,38 @@ class TESTR(nn.Module):
         #     )
         #     for i in range(len(num_channels))
         # ])
-
-        num_channels = [2304, 2304, 2304, 2304]
+        
+        
+        num_channels = [1152, 1152, 1152, 1152]
         self.diff_feat_proj = nn.ModuleList([
             nn.Sequential(
-                nn.Conv2d(2304, 1024, kernel_size=1),
-                nn.GroupNorm(32, 1024),
-                nn.GELU(),
-                nn.Conv2d(1024, self.d_model, kernel_size=1),
+                nn.Conv2d(num_channels[i], self.d_model, kernel_size=1),     # 1x1 projection
                 nn.GroupNorm(32, self.d_model),
                 nn.GELU(),
-                nn.Conv2d(self.d_model, self.d_model, kernel_size=3, padding=1),
+
+                nn.Conv2d(self.d_model, self.d_model, kernel_size=3, padding=1),  # 3x3 conv
                 nn.GroupNorm(32, self.d_model),
                 nn.GELU(),
             )
             for i in range(len(num_channels))
         ])
+        
+
+        # num_channels = [2304, 2304, 2304, 2304]
+        # self.diff_feat_proj = nn.ModuleList([
+        #     nn.Sequential(
+        #         nn.Conv2d(2304, 1024, kernel_size=1),
+        #         nn.GroupNorm(32, 1024),
+        #         nn.GELU(),
+        #         nn.Conv2d(1024, self.d_model, kernel_size=1),
+        #         nn.GroupNorm(32, self.d_model),
+        #         nn.GELU(),
+        #         nn.Conv2d(self.d_model, self.d_model, kernel_size=3, padding=1),
+        #         nn.GroupNorm(32, self.d_model),
+        #         nn.GELU(),
+        #     )
+        #     for i in range(len(num_channels))
+        # ])
 
         self.aux_loss = cfg.MODEL.TRANSFORMER.AUX_LOSS
 

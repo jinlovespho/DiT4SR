@@ -1100,6 +1100,7 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
                         else:
                             pooled_prompt_embeds_input = pooled_prompt_embeds
                     
+                    # breakpoint()
                     # controlnet(s) inference
                     trans_out = self.transformer(
                         hidden_states=latent_model_input,                       # b 16 64 64 
@@ -1111,6 +1112,210 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
                         return_dict=False,
                     )
                     noise_pred = trans_out[0]
+                    
+                    
+                    
+                    # hiddens_before=[]
+                    # ffs_before=[]
+                    # hiddens_after=[]
+                    # # visualize the pca of mmdit hiddenstate features 
+                    # for trans_blk in self.transformer.transformer_blocks:
+                    #     hiddens_before.append(trans_blk.hidden_before)
+                    #     ffs_before.append(trans_blk.ff_before)
+                    #     hiddens_after.append(trans_blk.hidden_after)
+                        
+                        
+
+
+
+                    # import torch.nn.functional as F
+                    # from einops import rearrange
+                    # import cv2
+                    # import numpy as np
+
+
+                    # @torch.no_grad()
+                    # def visualize_sd_features_pca_grid(hidden_list_dict, out_dir='./pca_sd_features_grid',
+                    #                                 pH=32, pW=32, out_hw=128, sample_points=10000, device='cuda',
+                    #                                 n_cols=6, mode='all'):
+                    #     """
+                    #     Create a grid of PCA visualizations for each transformer block per feature type.
+
+                    #     hidden_list_dict: dict of lists of hidden states per block
+                    #     mode: 'all' -> visualize each layer, 'avg' -> average all layers before PCA
+                    #     """
+                    #     os.makedirs(out_dir, exist_ok=True)
+                    #     robustness_scores = {key: [] for key in hidden_list_dict.keys()}
+                        
+                    #     for key, hidden_list in hidden_list_dict.items():
+                    #         if mode == 'avg':
+                    #             # average features across layers
+                    #             hidden_states = torch.stack(hidden_list, dim=0).mean(0)  # [b, n, d]
+                    #             hidden_list = [hidden_states]  # treat as a single "layer"
+                            
+                    #         n_layers = len(hidden_list)
+                    #         n_rows = (n_layers + n_cols - 1) // n_cols
+                    #         block_imgs = []
+                            
+                    #         for i, hidden_states in enumerate(hidden_list):
+                    #             hidden_states = hidden_states.to(torch.float32).to(device)
+                                
+                    #             # --- split HQ / LQ and reshape ---
+                    #             hidden_hq, hidden_lq = hidden_states.chunk(2, dim=1)
+                    #             hidden_hq = rearrange(hidden_hq, 'b (pH pW) d -> b d pH pW', pH=pH, pW=pW)
+                    #             hidden_lq = rearrange(hidden_lq, 'b (pH pW) d -> b d pH pW', pH=pH, pW=pW)
+                                
+                    #             # --- upscale ---
+                    #             hidden_hq = F.interpolate(hidden_hq, (out_hw, out_hw), mode='bilinear', align_corners=False)
+                    #             hidden_lq = F.interpolate(hidden_lq, (out_hw, out_hw), mode='bilinear', align_corners=False)
+                                
+                    #             # --- flatten spatial dims ---
+                    #             hq_feat = hidden_hq[0]
+                    #             lq_feat = hidden_lq[0]
+                    #             hq_flat = hq_feat.flatten(1).T
+                    #             lq_flat = lq_feat.flatten(1).T
+                    #             X = torch.cat([hq_flat, lq_flat], dim=0)
+                                
+                    #             # --- random subsample for PCA fitting ---
+                    #             if X.shape[0] > sample_points:
+                    #                 idx = torch.randperm(X.shape[0], device=device)[:sample_points]
+                    #                 X_sample = X[idx]
+                    #             else:
+                    #                 X_sample = X
+                                
+                    #             # --- PCA ---
+                    #             mean = X_sample.mean(0, keepdim=True)
+                    #             X_centered = X_sample - mean
+                    #             U, S, Vh = torch.linalg.svd(X_centered, full_matrices=False)
+                    #             components = Vh[:3]
+                                
+                    #             # --- robustness score ---
+                    #             total_var = (S**2).sum()
+                    #             top3_var = (S[:3]**2).sum()
+                    #             score = (top3_var / total_var).item()
+                    #             robustness_scores[key].append(score)
+                                
+                    #             # --- project full map ---
+                    #             X_centered_full = X - mean
+                    #             X_pca = X_centered_full @ components.T
+                                
+                    #             n_pix = out_hw * out_hw
+                    #             hq_pca = X_pca[:n_pix].reshape(out_hw, out_hw, 3)
+                    #             lq_pca = X_pca[n_pix:].reshape(out_hw, out_hw, 3)
+                                
+                    #             # --- normalize ---
+                    #             def norm_rgb_torch(x):
+                    #                 x = (x - x.min()) / (x.max() - x.min() + 1e-8)
+                    #                 return (x * 255).byte()
+                                
+                    #             hq_rgb = norm_rgb_torch(hq_pca).cpu().numpy()
+                    #             lq_rgb = norm_rgb_torch(lq_pca).cpu().numpy()
+                                
+                    #             hq_bgr = cv2.cvtColor(hq_rgb, cv2.COLOR_RGB2BGR)
+                    #             lq_bgr = cv2.cvtColor(lq_rgb, cv2.COLOR_RGB2BGR)
+                                
+                    #             vis = np.concatenate([hq_bgr, lq_bgr], axis=1)
+                                
+                    #             # --- label HQ/LQ ---
+                    #             offset = 5
+                    #             font_scale = 0.5
+                    #             thickness = 1
+                    #             w, _ = hq_bgr.shape[1], hq_bgr.shape[0]
+                    #             cv2.putText(vis, "HQ", (offset, 15), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255,255,255), thickness)
+                    #             cv2.putText(vis, "LQ", (w + offset, 15), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255,255,255), thickness)
+                                
+                    #             block_imgs.append(vis)
+                            
+                    #         # --- create grid ---
+                    #         row_imgs = []
+                    #         for r in range(n_rows):
+                    #             row = block_imgs[r*n_cols:(r+1)*n_cols]
+                    #             while len(row) < n_cols:
+                    #                 h, w, c = row[0].shape
+                    #                 row.append(np.zeros((h, w, c), dtype=np.uint8))
+                    #             row_imgs.append(np.concatenate(row, axis=1))
+                            
+                    #         grid_img = np.concatenate(row_imgs, axis=0)
+                            
+                    #         fname = os.path.join(out_dir, f"{key}_grid_{mode}.png")
+                    #         cv2.imwrite(fname, grid_img)
+                    #         print(f"✅ Saved PCA grid for {key} ({mode}) to {fname}")
+                        
+                    #     return robustness_scores
+
+
+                    # import matplotlib.pyplot as plt
+                    # def save_layer_scores_plot(robustness_scores, out_dir='./pca_sd_layer_scores'):
+                    #     """
+                    #     robustness_scores: dict with keys like 'hiddens_before', 'ffs_before', 'hiddens_after'
+                    #     values: list of per-layer PCA top-3 variance ratios
+                    #     """
+                    #     os.makedirs(out_dir, exist_ok=True)
+                        
+                    #     for key, scores in robustness_scores.items():
+                    #         scores = np.array(scores)
+                    #         n_layers = len(scores)
+                            
+                    #         plt.figure(figsize=(12, 4))
+                    #         plt.plot(range(1, n_layers+1), scores, marker='o', color='b')
+                    #         plt.title(f'PCA Top-3 Variance Ratio per Layer: {key}', fontsize=14)
+                    #         plt.xlabel('Layer', fontsize=12)
+                    #         plt.ylabel('Top-3 PCA Variance Ratio', fontsize=12)
+                    #         plt.xticks(range(1, n_layers+1))
+                    #         plt.ylim(0, 1.05)
+                    #         plt.grid(True, linestyle='--', alpha=0.5)
+                            
+                    #         # --- save the figure ---
+                    #         save_path = os.path.join(out_dir, f'{key}_layer_scores.png')
+                    #         plt.savefig(save_path, bbox_inches='tight')
+                    #         plt.close()
+                    #         print(f"✅ Saved figure: {save_path}")
+
+
+
+                    # hidden_list_dict = {
+                    #     'hiddens_before': hiddens_before,
+                    #     'ffs_before': ffs_before,
+                    #     'hiddens_after': hiddens_after
+                    # }
+
+
+                    # # # visualize all layers
+                    # scores_all = visualize_sd_features_pca_grid(hidden_list_dict, out_hw=128, mode='all', device='cuda', out_dir='./pca_sd_features_grid')
+                    # # # Save plots
+                    # # save_layer_scores_plot(scores_all, out_dir='./pca_sd_layer_scores')
+
+                    # # visualize averaged layers
+                    # # scores_avg = visualize_sd_features_pca_grid(hidden_list_dict, out_hw=128, mode='avg', device='cuda', out_dir='./pca_sd_features_grid')
+                    # # save_layer_scores_plot(scores_avg, out_dir='./pca_sd_layer_scores')
+                    
+                    
+                    # def select_top_layers(scores_dict, top_k=4):
+                    #     """
+                    #     scores_dict: dict like {'hiddens_before': [score1, score2, ...], ...}
+                    #     top_k: number of layers to select
+
+                    #     Returns a dict of top layer indices per feature type
+                    #     """
+                    #     top_layers = {}
+                    #     for key, scores in scores_dict.items():
+                    #         scores_arr = np.array(scores)
+                    #         # get indices of top_k highest scores
+                    #         top_indices = np.argsort(scores_arr)[-top_k:][::-1]  # descending order
+                    #         top_layers[key] = top_indices
+                    #         print(f"✅ Top {top_k} layers for {key}: {top_indices}, scores: {scores_arr[top_indices]}")
+                    #     return top_layers
+
+                    # top_layers_dict = select_top_layers(scores_all, top_k=4)
+
+
+                    # breakpoint()
+                    
+                    
+                    
+                    
+                    
+                    
 
                     # ts module forward pass 
                     if 'testr' in cfg.train.model:
