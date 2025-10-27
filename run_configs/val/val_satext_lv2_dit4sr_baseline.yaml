@@ -44,8 +44,8 @@ data:
       ann_path: /mnt/dataset1/text_restoration/100K/test/dataset.json
       vlm_captioner: llava_13b
       vlm_input_ques: 0
-      # vlm_caption_path: 
-      vlm_caption_path: result_vlm/orig_dit4sr/satext_lv2/llava13b_prompt
+      vlm_caption_path: 
+      # vlm_caption_path: result_vlm/orig_dit4sr/satext_lv2/llava13b_prompt
       val_num_img: 1000
       val_img_id: []
 
@@ -62,10 +62,10 @@ data:
 
 
      # choose from [gt, null, red_tsm, pred_vlm]
-    # text_cond_prompt: "gt"
+    text_cond_prompt: "gt"
     # text_cond_prompt: "null"
     # text_cond_prompt: "pred_tsm"
-    text_cond_prompt: "pred_vlm"
+    # text_cond_prompt: "pred_vlm"
 
 
     ocr:
