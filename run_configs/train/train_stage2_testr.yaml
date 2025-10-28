@@ -62,7 +62,7 @@ data:
 
 
     # choose from [gt, pred_tsm, pred_vlm, null]
-    text_cond_prompt: pred_tsm
+    text_cond_prompt: "pred_tsm"
 
 
     ocr:
@@ -173,14 +173,21 @@ log:
     key: e32eed0c2509bf898b850b0065ab62345005fb73
     project_name: cvpr26_tair_extension
     server: 20
-    gpu: 2
+    gpu: 1
+    
     # msg: DiTfeat4
     # msg: DiTfeat24_dit4sr_baseline_testr_pretrained
     # msg: DiTfeat24_dit4sr_lr1e5_ckpt18k_testr_pretrained
     # msg: DiTfeat24_dit4sr_baseline_testr_scratch
     # msg: DiTfeat24_dit4sr_lr1e5_ckpt18k_testr_scratch
-    # msg: dit_ff_feat24
-    # msg: dit_hidden_before_feat24
-    # msg: dit_hidden_before_feat12
-    msg: dit_ff_feat12
+
+    # msg: dit_hidden_after_24
+    # msg: dit_hidden_after_12
+    
+    # msg: dit_ff_before_24
+    # msg: dit_ff_before_12
+
+    msg: dit_hidden_before_24
+    # msg: dit_hidden_before_12
+
   log_dir: logs

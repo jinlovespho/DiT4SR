@@ -324,20 +324,32 @@ class JointTransformerBlock(nn.Module):
         ff_output = gate_mlp.unsqueeze(1) * ff_output
         
         
-        # BEFORE FF
+        
+        
+        # # BEFORE FF
+        # if extract_feat:
+        #     # extract lq added hq feature
+        #     trans_blk_out['extract_feat'] = ff_output[:,:n//2]
+            
+            
+        # BEFORE HIDDEN
         if extract_feat:
             # extract lq added hq feature
-            trans_blk_out['extract_feat'] = ff_output[:,:n//2]
+            trans_blk_out['extract_feat'] = hidden_states[:,:n//2]
+
 
 
         hidden_states = hidden_states + ff_output
+
+
         
 
-        # AFTER HIDDEN_STATES
+        # # # AFTER HIDDEN
         # if extract_feat:
         #     # extract lq added hq feature
         #     trans_blk_out['extract_feat'] = hidden_states[:,:n//2]
             
+
 
         # Process attention outputs for the `encoder_hidden_states`.
         if self.context_pre_only:

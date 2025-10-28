@@ -333,8 +333,8 @@ class SD3Transformer2DModel(ModelMixin, ConfigMixin, PeftAdapterMixin, FromOrigi
         
         trans_blk_outs=[]
         # extract_feat_idx=[0,  9,  15,  23]
-        # extract_feat_idx=[0,1,2,3,4,5,  6,7,8,9,10,11,  12,13,14,15,16,17,  18,19,20,21,22,23]
-        extract_feat_idx=[2,3,4, 8,9,10, 14,15,16,  21,22,23]
+        extract_feat_idx=[0,1,2,3,4,5,  6,7,8,9,10,11,  12,13,14,15,16,17,  18,19,20,21,22,23]
+        # extract_feat_idx=[2,3,4, 8,9,10, 14,15,16,  21,22,23]
         for index_block, block in enumerate(self.transformer_blocks):   # 24 blocks
             # Skip specified layers
             is_skip = True if skip_layers is not None and index_block in skip_layers else False     # is_skip = False

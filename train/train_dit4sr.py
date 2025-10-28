@@ -8,7 +8,7 @@ from accelerate.logging import get_logger
 
 import cv2 
 import wandb
-import pyiqa
+# import pyiqa
 import math
 import argparse
 import numpy as np 
@@ -90,6 +90,7 @@ def main(cfg):
         power=cfg.train.lr_power,
     )
 
+
     # Prepare everything with our `accelerator`.
     # transformer, ts_module, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(models['transformer'], models['testr'], optimizer, train_dataloader, lr_scheduler)
     # transformer, models['testr'], optimizer, train_dataloader, lr_scheduler = accelerator.prepare(models['transformer'], models['testr'], optimizer, train_dataloader, lr_scheduler)
@@ -104,16 +105,16 @@ def main(cfg):
     cfg.train.num_train_epochs = math.ceil(cfg.train.max_train_steps / num_update_steps_per_epoch)
 
 
-    # SR metrics
-    metric_psnr = pyiqa.create_metric('psnr', device=accelerator.device)
-    metric_ssim = pyiqa.create_metric('ssimc', device=accelerator.device)
-    metric_lpips = pyiqa.create_metric('lpips', device=accelerator.device)
-    metric_dists = pyiqa.create_metric('dists', device=accelerator.device)
-    # metric_fid = pyiqa.create_metric('fid', device=device)
-    metric_niqe = pyiqa.create_metric('niqe', device=accelerator.device)
-    metric_musiq = pyiqa.create_metric('musiq', device=accelerator.device)
-    metric_maniqa = pyiqa.create_metric('maniqa', device=accelerator.device)
-    metric_clipiqa = pyiqa.create_metric('clipiqa', device=accelerator.device)
+    # # SR metrics
+    # metric_psnr = pyiqa.create_metric('psnr', device=accelerator.device)
+    # metric_ssim = pyiqa.create_metric('ssimc', device=accelerator.device)
+    # metric_lpips = pyiqa.create_metric('lpips', device=accelerator.device)
+    # metric_dists = pyiqa.create_metric('dists', device=accelerator.device)
+    # # metric_fid = pyiqa.create_metric('fid', device=device)
+    # metric_niqe = pyiqa.create_metric('niqe', device=accelerator.device)
+    # metric_musiq = pyiqa.create_metric('musiq', device=accelerator.device)
+    # metric_maniqa = pyiqa.create_metric('maniqa', device=accelerator.device)
+    # metric_clipiqa = pyiqa.create_metric('clipiqa', device=accelerator.device)
 
 
     tot_train_epochs = cfg.train.num_train_epochs
@@ -163,74 +164,9 @@ def main(cfg):
 
     global_step = 0
     first_epoch = 0
-
-    ocr_losses={}  
-        
-    # # Load previous trained ckpts
-    # if cfg.ckpt.resume.dit is not None:
-    #     resume_path = cfg.ckpt.resume.dit
-    #     num_ckpt = resume_path.split('/')[-1].split('-')[-1]
-    #     accelerator.print(f"Resuming from checkpoint {resume_path}")
-    #     accelerator.load_state(resume_path, strict=False)
-    #     # load ts_module ckpt
-    #     if 'testr' in cfg.train.model:
-    #         ts_ckpt_path = os.path.join(resume_path, f"ts_module{int(num_ckpt):07d}.pt")
-    #         ckpt = torch.load(ts_ckpt_path, map_location="cpu")
-    #         load_result = models['testr'].load_state_dict(ckpt['ts_module'], strict=False)
-    #         print("Loaded TESTR checkpoint keys:")
-    #         print(" - Missing keys:", load_result.missing_keys)
-    #         print(" - Unexpected keys:", load_result.unexpected_keys)
-    #     # resume global step
-    #     global_step = int(num_ckpt)
-    #     initial_global_step = global_step
-    #     first_epoch = global_step // num_update_steps_per_epoch
-    # else:
-    #     accelerator.print(f"Checkpoint '{cfg.ckpt.resume.dit}' does not exist. Starting a new training run.")
-    #     cfg.ckpt.resume.dit = None
-    #     initial_global_step = 0
-
-    
     initial_global_step = 0
 
-
-    #     if cfg.ckpt.resume.dit != "latest":
-    #         path = os.path.basename(cfg.ckpt.resume.dit)
-    #     else:
-    #         # Get the most recent checkpoint
-    #         dirs = os.listdir(f'{cfg.save.output_dir}/{exp_name}')
-    #         dirs = [d for d in dirs if d.startswith("checkpoint")]
-    #         dirs = sorted(dirs, key=lambda x: int(x.split("-")[1]))
-    #         path = dirs[-1] if len(dirs) > 0 else None
-
-    #     if path is None:
-    #         accelerator.print(
-    #             f"Checkpoint '{cfg.ckpt.resume.dit}' does not exist. Starting a new training run."
-    #         )
-    #         cfg.ckpt.resume.dit = None
-    #         initial_global_step = 0
-    #     else:
-    #         breakpoint()
-    #         # load transformer ckpt
-    #         accelerator.print(f"Resuming from checkpoint {path}")
-    #         resume_path = os.path.join(cfg.save.output_dir, exp_name, path)
-    #         accelerator.load_state(resume_path)
-            
-    #         # load ts_module ckpt
-    #         if 'testr' in cfg.train.model:
-    #             ts_ckpt_path = os.path.join(resume_path, f"ts_module{int(path.split('-')[-1]):07d}.pt")
-    #             ckpt = torch.load(ts_ckpt_path, map_location="cpu")
-    #             load_result = models['testr'].load_state_dict(ckpt['ts_module'], strict=False)
-    #             print("Loaded TESTR checkpoint keys:")
-    #             print(" - Missing keys:", load_result.missing_keys)
-    #             print(" - Unexpected keys:", load_result.unexpected_keys)
-
-    #         global_step = int(path.split("-")[1])
-
-    #         initial_global_step = global_step
-    #         first_epoch = global_step // num_update_steps_per_epoch
-    # else:
-    #     initial_global_step = 0
-
+    ocr_losses={}  
 
     progress_bar = tqdm(range(0, tot_train_steps), initial=initial_global_step, desc="Steps", disable=not accelerator.is_local_main_process,)
     free_memory()
@@ -396,14 +332,22 @@ def main(cfg):
                 else:
                     total_loss = diff_loss
                     ocr_tot_loss=torch.tensor(0).cuda()
+                    
 
                 if global_step > 0:
                     # backpropagate
                     accelerator.backward(total_loss)
+                    
                     if accelerator.sync_gradients:
-                        # params_to_clip = controlnet.parameters()
-                        params_to_clip = transformer.parameters()
+                        params_to_clip = list(transformer.parameters())
+                        if 'testr' in models and getattr(models['testr'], 'training', False):
+                            params_to_clip += list(models['testr'].parameters())
                         accelerator.clip_grad_norm_(params_to_clip, cfg.train.max_grad_norm)
+
+                    # if accelerator.sync_gradients:
+                    #     # params_to_clip = controlnet.parameters()
+                    #     params_to_clip = transformer.parameters()
+                    #     accelerator.clip_grad_norm_(params_to_clip, cfg.train.max_grad_norm)
                     optimizer.step()
                     lr_scheduler.step()
                     optimizer.zero_grad(set_to_none=cfg.train.set_grads_to_none)
@@ -413,6 +357,8 @@ def main(cfg):
             if accelerator.sync_gradients:
                 progress_bar.update(1)
                 global_step += 1
+
+
 
                 if accelerator.is_main_process:
                     if global_step % cfg.save.checkpointing_steps == 0:
@@ -427,7 +373,9 @@ def main(cfg):
                             torch.save(ts_ckpt, ckpt_path)
                         logger.info(f"Saved state to {save_path}")
 
-                    if global_step==1 or global_step % cfg.val.val_every_step == 0:
+
+
+                    if len(cfg.data.val.eval_list) != 0 and (global_step==1 or global_step % cfg.val.val_every_step == 0):
 
                         if 'testr' in cfg.train.model:
                             ts_module = models['testr'] 
@@ -502,6 +450,10 @@ def main(cfg):
                                 # null prompt 
                                 elif cfg.data.val.text_cond_prompt == 'null':
                                     val_init_prompt = ['']
+                                
+                                else:
+                                    val_init_prompt = ['']
+                                    
                                 
                                 # added prompt             
                                 if cfg.data.val.added_prompt is not None:
