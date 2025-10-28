@@ -155,7 +155,7 @@ val:
 # ----------------------------------
 save:
   output_dir: ./result_train/JIHYE_stage1       # ckpt 저장 경로 설정해주세요
-  checkpointing_steps: 5                    # 1k마다 저장하는걸로 일단 정했어요
+  checkpointing_steps: 1000                    # 1k마다 저장하는걸로 일단 정했어요
 
 
 

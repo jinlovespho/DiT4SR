@@ -7,6 +7,11 @@ init:
 data:
   train:
     name: satext
+    # ----------------------------------
+    #      STAGE2 - MODIFY HERE ! 
+    # ----------------------------------
+    # hq_img_path: /PATH/TO/100K/train        # 아래에 예시 경로 설정했습니다
+    # ann_path: /PATH/TO/train/dataset.json   # # 아래에 예시 경로 설정했습니다    
     hq_img_path: /mnt/dataset1/text_restoration/100K/train
     ann_path: /mnt/dataset1/text_restoration/100K/train/dataset.json
     hq_prompt_path: 
@@ -153,7 +158,7 @@ val:
 # ----------------------------------
 save:
   output_dir: ./result_train/JIHYE_stage2       # ckpt 저장 경로 설정해주세요
-  checkpointing_steps: 5                    # 1k마다 저장하는걸로 일단 정했어요
+  checkpointing_steps: 1000                    # 1k마다 저장하는걸로 일단 정했어요
 
 
 log:

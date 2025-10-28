@@ -3,21 +3,21 @@
 ##  ⚒️ Training Preparation
 
 ### 1. Environment
-```
+```bash
 conda create -n dit4sr python=3.9 -y
 conda activate dit4sr
 ```
 
 ### 2. Installation
-```
-# Install the libraries in the order listed below.
+Install the libraries in the order listed below.
+```bash
 pip install torch==2.2.2 torchvision==0.17.2 torchaudio==2.2.2 --index-url https://download.pytorch.org/whl/cu121
 pip install -r requirements.txt
 pip install numpy==1.26.3 --no-deps
 pip install pyiqa==0.1.14.1 --no-deps 
 cd detectron2 
 pip install -e . --no-deps --no-build-isolation --config-settings editable_mode=compat
-cd testr 
+cd ../testr 
 pip install -e . --no-deps --no-build-isolation --config-settings editable_mode=compat
 pip install cloudpickle --no-deps
 ```
@@ -30,19 +30,21 @@ pip install cloudpickle --no-deps
 #### 3-2. Pretrained Weights
 
 - SD3 weights
-```
-# Enter your HF access token to download SD3 weights
-huggingface-cli login
+```bash
+# First login enter your HF access token to download SD3 weights
+huggingface-cli login   
+
+# Then run the bash file
 bash download_bash/download_sd3.sh 
 ```
 
 - DiT4SR weights
-```
+```bash
 bash download_bash/download_dit4sr.sh 
 ```
 
 - TESTR weights
-```
+```bash
 bash download_bash/download_testr.sh 
 ```
 
