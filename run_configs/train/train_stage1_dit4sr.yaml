@@ -27,8 +27,7 @@ data:
       vlm_caption_path: 
       val_num_img: 847
       # val_img_id: []
-      # val_img_id: [Canon_001_HR_crop_1, Canon_21_x4_5_crop_0, Canon_24_x4_21_crop_0, Canon_30_x4_44_crop_0, Canon_31_x4_52_crop_0, Canon_32_x4_21_crop_0, Canon_32_x4_23_crop_0, Canon_33_x4_33_crop_0, Canon_37_x4_45_crop_0, Canon_41_x4_32_crop_0, Canon_41_x4_35_crop_0, DSC_0972_x4_13_crop_0, DSC_0984_x4_2_crop_0, DSC_0984_x4_6_crop_0, DSC_1023_x4_16_crop_0, DSC_1330_x4_4_crop_0, DSC_1342_x4_6_crop_0,  ]
-      val_img_id: [Canon_001_HR_crop_1]
+      val_img_id: [Canon_001_HR_crop_1, Canon_21_x4_5_crop_0, Canon_24_x4_21_crop_0, Canon_30_x4_44_crop_0, Canon_31_x4_52_crop_0, Canon_32_x4_21_crop_0, Canon_32_x4_23_crop_0, Canon_33_x4_33_crop_0, Canon_37_x4_45_crop_0, Canon_41_x4_32_crop_0, Canon_41_x4_35_crop_0, DSC_0972_x4_13_crop_0, DSC_0984_x4_2_crop_0, DSC_0984_x4_6_crop_0, DSC_1023_x4_16_crop_0, DSC_1330_x4_4_crop_0, DSC_1342_x4_6_crop_0,  ]
 
 
     satext_lv3:
@@ -49,8 +48,7 @@ data:
       vlm_input_ques: 
       vlm_caption_path: 
       val_num_img: 1000
-      # val_img_id: [sa_9434_crop_0, sa_82995_crop_0, sa_83375_crop_0, sa_84137_crop_1, sa_87550_crop_1, sa_89493_crop_0, sa_91353_crop_2, sa_93762_crop_0, sa_93833_crop_0, sa_95493_crop_0, sa_99633_crop_0]
-      val_img_id: [sa_9434_crop_0]
+      val_img_id: [sa_9434_crop_0, sa_82995_crop_0, sa_83375_crop_0, sa_84137_crop_1, sa_87550_crop_1, sa_89493_crop_0, sa_91353_crop_2, sa_93762_crop_0, sa_93833_crop_0, sa_95493_crop_0, sa_99633_crop_0]
 
     satext_lv1:
       lq_img_path: /mnt/dataset1/text_restoration/SAMText_test_degradation/lv1
@@ -130,44 +128,49 @@ ckpt:
 train:
   stage: stage1
   model: ["dit4sr"]
-  lr: [1e-5]
+  lr: [5e-5]
   finetune: [lrbranch, attns]
-  batch_size: 1
-  num_workers: 4
-  # num_train_epochs: 50  # 330k
-  num_train_epochs: 10  # 60k
-  max_train_steps: 
   mixed_precision: 'fp16'
-  # mixed_precision: 'no'
+
+
+  # ----------------------------------
+  #      STAGE1 - MODIFY HERE ! 
+  # ----------------------------------
+  num_train_epochs: 10  # 60k
+  batch_size: 1         
+  num_workers: 4
+  gradient_accumulation_steps: 8
+  
+  
+  max_train_steps: 
   lr_scheduler: "constant"
   lr_warmup_steps: 0
   lr_num_cycles: 1
   lr_power: 1.0
   max_grad_norm: 1.0
   set_grads_to_none: False
-  gradient_checkpointing: True
-  gradient_accumulation_steps: 16
   scale_lr: False
   use_8bit_adam: False
   ocr_loss_weight: 
 
 
 val:
-  val_every_step: 2
+  val_every_step: 500
 
 
 save:
-  output_dir: ./result_train/stage1TMP
-  checkpointing_steps: 2
+  output_dir: ./result_train/multigpu_stage1
+  checkpointing_steps: 500
 
 
 log:
   tracker: 
     report_to: wandb
     key: e32eed0c2509bf898b850b0065ab62345005fb73
-    project_name: cvpr26_tair_extension
+    # project_name: cvpr26_tair_extension
+    project_name: cvpr26_tair2_train
     server: 20
-    gpu: 4
-    msg: DiTfeat24
+    gpu: 23
+    msg: ditfeat24_hidden_after
   log_dir: logs
 

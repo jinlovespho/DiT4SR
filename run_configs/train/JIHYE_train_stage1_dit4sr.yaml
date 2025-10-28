@@ -155,7 +155,7 @@ val:
 # ----------------------------------
 save:
   output_dir: ./result_train/JIHYE_stage1       # ckpt 저장 경로 설정해주세요
-  checkpointing_steps: 1000                    # 1k마다 저장하는걸로 일단 정했어요
+  checkpointing_steps: 5                    # 1k마다 저장하는걸로 일단 정했어요
 
 
 
@@ -169,7 +169,7 @@ log:
     # key: e32eed0c2509bf898b850b0065ab62345005fb73
     # project_name: cvpr26_tair_extension
     server: samsung
-    gpu: 1234
+    gpu: 0123
     msg: jihye
   log_dir: logs
 

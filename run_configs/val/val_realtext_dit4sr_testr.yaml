@@ -24,7 +24,7 @@ data:
       vlm_input_ques: 
       vlm_caption_path:
       val_num_img: 847
-      val_img_id: []
+      val_img_id: [Canon_7_x4_23_crop_0]
 
     satext_lv3:
       lq_img_path: 
@@ -71,7 +71,7 @@ data:
     
 
     # choose from ['crop', 'full']
-    eval_region: full
+    eval_region: all
     
 
     added_prompt: Cinematic, hyper sharpness, highly detailed, perfect without deformations, camera, hyper detailed photo - realistic maximum detail, 32k, Color Grading, ultra HD, extreme meticulous detailing, skin pore detailing.
@@ -163,7 +163,8 @@ val:
 
 save:
   # output_dir: ./result_val
-  output_dir: ./result_val_dit4sr_2nd/full_eval
+  # output_dir: ./result_val_dit4sr_2nd/full_eval
+  output_dir: ./result_val_dit4sr_2nd/few_eval_TMP
   checkpointing_steps: 
 
 
@@ -174,7 +175,7 @@ log:
     # project_name: cvpr26_tair_extension
     project_name: cvpr26_tair2_val
     server: 20
-    gpu: 5
+    gpu: 7
     msg: ""
   log_dir: logs
 
