@@ -70,6 +70,10 @@ data:
       # vis_timestep: [-1] # visualize all timesteps
       vis_timestep: []  # visualize selected time iter
     
+    
+    attn:
+      vis_map: False
+    
 
 
     # choose from ['crop', 'full']
@@ -121,7 +125,7 @@ ckpt:
     dit: preset/models/dit4sr/dit4sr_q
     ts_module: 
   resume_path:
-    dit: 
+    dit: result_train/multigpu_stage1/fp16_stage1_dit4sr_5e-05_lrbranch-attns_ocrlossNone_descriptive_ditfeat24_hidden_after/checkpoint-1000
     ts_module: 
 
 

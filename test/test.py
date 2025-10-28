@@ -221,6 +221,8 @@ def main(cfg):
             val_img_id = val_sample['img_id']
             val_vlm_cap = val_sample['vlm_cap']
             
+            # process hq image 
+            val_hq_pil = Image.open(val_hq_path).convert("RGB") 
             
             # process lq image 
             val_lq_pil = Image.open(val_lq_path).convert("RGB") # 128 128 
@@ -280,7 +282,7 @@ def main(cfg):
                     prompt=val_init_prompt[0], control_image=val_lq_pil, num_inference_steps=cfg.data.val.num_inference_steps, generator=generator, height=512, width=512,
                     guidance_scale=cfg.data.val.guidance_scale, negative_prompt=neg_prompt,
                     start_point=cfg.data.val.start_point, latent_tiled_size=cfg.data.val.latent_tiled_size, latent_tiled_overlap=cfg.data.val.latent_tiled_overlap,
-                    output_type = 'pil', return_dict=False, lq_id=val_img_id, val_data_name=val_data_name, cfg=cfg, mode='val'
+                    output_type = 'pil', return_dict=False, lq_id=val_img_id, val_data_name=val_data_name, cfg=cfg, mode='val', hq_img=val_hq_pil
                 )
             
             
@@ -316,7 +318,6 @@ def main(cfg):
             val_res_pt = val_res_pt.to(device=accelerator.device, dtype=torch.float32).unsqueeze(dim=0).clamp(0.0, 1.0)   # 1 3 512 512 
             
             # gt pil img -> tensor 
-            val_hq_pil = Image.open(val_hq_path).convert("RGB") 
             val_hq_pt = T.ToTensor()(val_hq_pil)
             val_hq_pt = val_hq_pt.to(device=accelerator.device, dtype=torch.float32).unsqueeze(dim=0).clamp(0.0, 1.0)   # 1 3 512 512 
             

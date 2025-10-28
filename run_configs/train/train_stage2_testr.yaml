@@ -71,6 +71,9 @@ data:
       vis_timestep: [0, 1, 2, 3, 4, 5, 10, 20, 30, 39]  # visualize selected time iter
     
 
+    attn:
+      vis_map: False
+
 
     # choose from ['crop', 'full']
     eval_region: all

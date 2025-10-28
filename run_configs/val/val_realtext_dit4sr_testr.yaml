@@ -70,6 +70,10 @@ data:
       vis_timestep: [0, 1, 2, 3, 4, 5, 10, 20, 30, 39]  # visualize selected time iter
     
 
+    attn:
+      vis_map: True
+
+
     # choose from ['crop', 'full']
     eval_region: all
     
@@ -170,7 +174,7 @@ save:
 
 log:
   tracker: 
-    report_to: wandb 
+    report_to: wandba
     key: e32eed0c2509bf898b850b0065ab62345005fb73
     # project_name: cvpr26_tair_extension
     project_name: cvpr26_tair2_val

@@ -485,12 +485,36 @@ class JointAttnProcessor2_0:
             query = torch.cat([query, query_control, encoder_hidden_states_query_proj], dim=2)  # concat hq, lq, text_emb -> 1024+1024+154 = 2202
             key = torch.cat([key, key_control, encoder_hidden_states_key_proj], dim=2)          # b 24 2202 64
             value = torch.cat([value, value_control, encoder_hidden_states_value_proj], dim=2)      
+            
+            # ---------------------------------
+            #       Attn map computation
+            # ---------------------------------
+            
+            '''
+                query, key, value: (b head n1+n2+n3 d)
+            '''
+            
+            # from torchvision.utils import save_image 
+            # Compute attention map
+            # self.attn_map = torch.matmul(query, key.transpose(-2, -1))
+            # attn_map = F.softmax(attn_map, dim=-1)
+            # attn_map_head_avg = attn_map.mean(dim=1).unsqueeze(dim=1)
+            # save_image(attn_map_head_avg, './tmp.jpg', normalize=True)
+            
+            # num_img_tkn = 1024 
+            # num_txt_tkn = 333
+            
+            self.attn_map = torch.matmul(query.clone().detach(), key.clone().detach().transpose(-2, -1))
         
         else :
             query = torch.cat([query, query_control], dim=2)
             key = torch.cat([key, key_control], dim=2)
             value = torch.cat([value, value_control], dim=2)
             
+        
+        
+        
+
         hidden_states = F.scaled_dot_product_attention(query, key, value, attn_mask=attention_mask, dropout_p=0.0, is_causal=False) # b 24 2202 64
         hidden_states = hidden_states.transpose(1, 2).reshape(batch_size, -1, attn.heads * head_dim)    # b 2202 1536
         hidden_states = hidden_states.to(query.dtype)

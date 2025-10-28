@@ -283,6 +283,9 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
             add_special_tokens=True,
             return_tensors="pt",
         )
+        
+        breakpoint()
+        
         text_input_ids = text_inputs.input_ids
         untruncated_ids = self.tokenizer_3(prompt, padding="longest", return_tensors="pt").input_ids
 
@@ -333,6 +336,8 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
             truncation=True,
             return_tensors="pt",
         )
+        
+        breakpoint()
 
         text_input_ids = text_inputs.input_ids
         untruncated_ids = tokenizer(prompt, padding="longest", return_tensors="pt").input_ids
@@ -455,34 +460,35 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
             prompt_3 = prompt_3 or prompt
             prompt_3 = [prompt_3] if isinstance(prompt_3, str) else prompt_3
 
-            prompt_embed, pooled_prompt_embed = self._get_clip_prompt_embeds(
-                prompt=prompt,
+            # breakpoint()
+            prompt_embed, pooled_prompt_embed = self._get_clip_prompt_embeds(           # clip-L: 1 77 768, 1 768
+                prompt=prompt,      
                 device=device,
                 num_images_per_prompt=num_images_per_prompt,
                 clip_skip=clip_skip,
                 clip_model_index=0,
             )
-            prompt_2_embed, pooled_prompt_2_embed = self._get_clip_prompt_embeds(
+            prompt_2_embed, pooled_prompt_2_embed = self._get_clip_prompt_embeds(       # clip-G: 1 77 1280, 1 1280
                 prompt=prompt_2,
                 device=device,
                 num_images_per_prompt=num_images_per_prompt,
                 clip_skip=clip_skip,
                 clip_model_index=1,
             )
-            clip_prompt_embeds = torch.cat([prompt_embed, prompt_2_embed], dim=-1)
+            clip_prompt_embeds = torch.cat([prompt_embed, prompt_2_embed], dim=-1)      # 1 77 2048 -> [clip-L, clip-G] concat channel dim
 
-            t5_prompt_embed = self._get_t5_prompt_embeds(
+            t5_prompt_embed = self._get_t5_prompt_embeds(                               # t5: 1 256 4096
                 prompt=prompt_3,
                 num_images_per_prompt=num_images_per_prompt,
                 max_sequence_length=max_sequence_length,
                 device=device,
             )
 
-            clip_prompt_embeds = torch.nn.functional.pad(
+            clip_prompt_embeds = torch.nn.functional.pad(                               # 1 77 2048+2048(zeropad)
                 clip_prompt_embeds, (0, t5_prompt_embed.shape[-1] - clip_prompt_embeds.shape[-1])
             )
 
-            prompt_embeds = torch.cat([clip_prompt_embeds, t5_prompt_embed], dim=-2)
+            prompt_embeds = torch.cat([clip_prompt_embeds, t5_prompt_embed], dim=-2)    # concat clip and t5 tkns -> tkn dim-> 1 77+256 4096
             pooled_prompt_embeds = torch.cat([pooled_prompt_embed, pooled_prompt_2_embed], dim=-1)
 
         if do_classifier_free_guidance and negative_prompt_embeds is None:
@@ -978,6 +984,7 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
                 do_classifier_free_guidance=self.do_classifier_free_guidance,
                 guess_mode=False,
             )
+        control_image_pt = control_image.clone().detach()
         # control_image = (control_image + 1.0) / 2.0
         height, width = control_image.shape[-2:]
 
@@ -1115,208 +1122,69 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
                     
                     
                     
-                    # hiddens_before=[]
-                    # ffs_before=[]
-                    # hiddens_after=[]
-                    # # visualize the pca of mmdit hiddenstate features 
-                    # for trans_blk in self.transformer.transformer_blocks:
-                    #     hiddens_before.append(trans_blk.hidden_before)
-                    #     ffs_before.append(trans_blk.ff_before)
-                    #     hiddens_after.append(trans_blk.hidden_after)
+                    if cfg.data.val.attn.vis_map:
+                        # ------------------------------------
+                        #            VIS ATTN MAP 
+                        # ------------------------------------
+                        
+                        attn_maps=[]
+                        for trans_blk in self.transformer.transformer_blocks:
+                            attn_map = trans_blk.attn.processor.attn_map
+                            attn_maps.append(attn_map)  # 2 24 2381 2381
+                        
+
+                        
+                        num_img_tkn = 1024
+                        num_txt_tkn = 333 
+                        
+                        hq_idx = num_img_tkn
+                        lq_idx = num_img_tkn + num_img_tkn
+                        txt_idx = num_img_tkn + num_img_tkn + num_txt_tkn
+
+                        dict_maps = {k: [] for k in ['h2h','h2l','h2t','l2h','l2l','l2t','t2h','t2l','t2t']}
+
+                        for m in attn_maps:
+                            dict_maps['h2h'].append(m[:, :, 0:hq_idx, 0:hq_idx])
+                            dict_maps['h2l'].append(m[:, :, 0:hq_idx, hq_idx:lq_idx])
+                            dict_maps['h2t'].append(m[:, :, 0:hq_idx, lq_idx:txt_idx])
+                            dict_maps['l2h'].append(m[:, :, hq_idx:lq_idx, 0:hq_idx])
+                            dict_maps['l2l'].append(m[:, :, hq_idx:lq_idx, hq_idx:lq_idx])
+                            dict_maps['l2t'].append(m[:, :, hq_idx:lq_idx, lq_idx:txt_idx])
+                            dict_maps['t2h'].append(m[:, :, lq_idx:txt_idx, 0:hq_idx])
+                            dict_maps['t2l'].append(m[:, :, lq_idx:txt_idx, hq_idx:lq_idx])
+                            dict_maps['t2t'].append(m[:, :, lq_idx:txt_idx, lq_idx:txt_idx])
                         
                         
-
-
-
-                    # import torch.nn.functional as F
-                    # from einops import rearrange
-                    # import cv2
-                    # import numpy as np
-
-
-                    # @torch.no_grad()
-                    # def visualize_sd_features_pca_grid(hidden_list_dict, out_dir='./pca_sd_features_grid',
-                    #                                 pH=32, pW=32, out_hw=128, sample_points=10000, device='cuda',
-                    #                                 n_cols=6, mode='all'):
-                    #     """
-                    #     Create a grid of PCA visualizations for each transformer block per feature type.
-
-                    #     hidden_list_dict: dict of lists of hidden states per block
-                    #     mode: 'all' -> visualize each layer, 'avg' -> average all layers before PCA
-                    #     """
-                    #     os.makedirs(out_dir, exist_ok=True)
-                    #     robustness_scores = {key: [] for key in hidden_list_dict.keys()}
                         
-                    #     for key, hidden_list in hidden_list_dict.items():
-                    #         if mode == 'avg':
-                    #             # average features across layers
-                    #             hidden_states = torch.stack(hidden_list, dim=0).mean(0)  # [b, n, d]
-                    #             hidden_list = [hidden_states]  # treat as a single "layer"
-                            
-                    #         n_layers = len(hidden_list)
-                    #         n_rows = (n_layers + n_cols - 1) // n_cols
-                    #         block_imgs = []
-                            
-                    #         for i, hidden_states in enumerate(hidden_list):
-                    #             hidden_states = hidden_states.to(torch.float32).to(device)
-                                
-                    #             # --- split HQ / LQ and reshape ---
-                    #             hidden_hq, hidden_lq = hidden_states.chunk(2, dim=1)
-                    #             hidden_hq = rearrange(hidden_hq, 'b (pH pW) d -> b d pH pW', pH=pH, pW=pW)
-                    #             hidden_lq = rearrange(hidden_lq, 'b (pH pW) d -> b d pH pW', pH=pH, pW=pW)
-                                
-                    #             # --- upscale ---
-                    #             hidden_hq = F.interpolate(hidden_hq, (out_hw, out_hw), mode='bilinear', align_corners=False)
-                    #             hidden_lq = F.interpolate(hidden_lq, (out_hw, out_hw), mode='bilinear', align_corners=False)
-                                
-                    #             # --- flatten spatial dims ---
-                    #             hq_feat = hidden_hq[0]
-                    #             lq_feat = hidden_lq[0]
-                    #             hq_flat = hq_feat.flatten(1).T
-                    #             lq_flat = lq_feat.flatten(1).T
-                    #             X = torch.cat([hq_flat, lq_flat], dim=0)
-                                
-                    #             # --- random subsample for PCA fitting ---
-                    #             if X.shape[0] > sample_points:
-                    #                 idx = torch.randperm(X.shape[0], device=device)[:sample_points]
-                    #                 X_sample = X[idx]
-                    #             else:
-                    #                 X_sample = X
-                                
-                    #             # --- PCA ---
-                    #             mean = X_sample.mean(0, keepdim=True)
-                    #             X_centered = X_sample - mean
-                    #             U, S, Vh = torch.linalg.svd(X_centered, full_matrices=False)
-                    #             components = Vh[:3]
-                                
-                    #             # --- robustness score ---
-                    #             total_var = (S**2).sum()
-                    #             top3_var = (S[:3]**2).sum()
-                    #             score = (top3_var / total_var).item()
-                    #             robustness_scores[key].append(score)
-                                
-                    #             # --- project full map ---
-                    #             X_centered_full = X - mean
-                    #             X_pca = X_centered_full @ components.T
-                                
-                    #             n_pix = out_hw * out_hw
-                    #             hq_pca = X_pca[:n_pix].reshape(out_hw, out_hw, 3)
-                    #             lq_pca = X_pca[n_pix:].reshape(out_hw, out_hw, 3)
-                                
-                    #             # --- normalize ---
-                    #             def norm_rgb_torch(x):
-                    #                 x = (x - x.min()) / (x.max() - x.min() + 1e-8)
-                    #                 return (x * 255).byte()
-                                
-                    #             hq_rgb = norm_rgb_torch(hq_pca).cpu().numpy()
-                    #             lq_rgb = norm_rgb_torch(lq_pca).cpu().numpy()
-                                
-                    #             hq_bgr = cv2.cvtColor(hq_rgb, cv2.COLOR_RGB2BGR)
-                    #             lq_bgr = cv2.cvtColor(lq_rgb, cv2.COLOR_RGB2BGR)
-                                
-                    #             vis = np.concatenate([hq_bgr, lq_bgr], axis=1)
-                                
-                    #             # --- label HQ/LQ ---
-                    #             offset = 5
-                    #             font_scale = 0.5
-                    #             thickness = 1
-                    #             w, _ = hq_bgr.shape[1], hq_bgr.shape[0]
-                    #             cv2.putText(vis, "HQ", (offset, 15), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255,255,255), thickness)
-                    #             cv2.putText(vis, "LQ", (w + offset, 15), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255,255,255), thickness)
-                                
-                    #             block_imgs.append(vis)
-                            
-                    #         # --- create grid ---
-                    #         row_imgs = []
-                    #         for r in range(n_rows):
-                    #             row = block_imgs[r*n_cols:(r+1)*n_cols]
-                    #             while len(row) < n_cols:
-                    #                 h, w, c = row[0].shape
-                    #                 row.append(np.zeros((h, w, c), dtype=np.uint8))
-                    #             row_imgs.append(np.concatenate(row, axis=1))
-                            
-                    #         grid_img = np.concatenate(row_imgs, axis=0)
-                            
-                    #         fname = os.path.join(out_dir, f"{key}_grid_{mode}.png")
-                    #         cv2.imwrite(fname, grid_img)
-                    #         print(f"✅ Saved PCA grid for {key} ({mode}) to {fname}")
                         
-                    #     return robustness_scores
+                        # ------------- visualize h2t -------------
+                        lq_img = control_image_pt
+                        prompt = prompt 
+                        maps = torch.stack(dict_maps['h2t'])    # 24 2 24 1024 333 (layer cfg head dim dim)
+                        pos_maps = maps[:,-1]                   # 24 24 1024 333, get cfg pos map [neg, pos]
+                        neg_maps = maps[:, 0]
+                        map = pos_maps.mean(dim=(0,1))              # 1024 333, avg layer and head
 
-
-                    # import matplotlib.pyplot as plt
-                    # def save_layer_scores_plot(robustness_scores, out_dir='./pca_sd_layer_scores'):
-                    #     """
-                    #     robustness_scores: dict with keys like 'hiddens_before', 'ffs_before', 'hiddens_after'
-                    #     values: list of per-layer PCA top-3 variance ratios
-                    #     """
-                    #     os.makedirs(out_dir, exist_ok=True)
                         
-                    #     for key, scores in robustness_scores.items():
-                    #         scores = np.array(scores)
-                    #         n_layers = len(scores)
-                            
-                    #         plt.figure(figsize=(12, 4))
-                    #         plt.plot(range(1, n_layers+1), scores, marker='o', color='b')
-                    #         plt.title(f'PCA Top-3 Variance Ratio per Layer: {key}', fontsize=14)
-                    #         plt.xlabel('Layer', fontsize=12)
-                    #         plt.ylabel('Top-3 PCA Variance Ratio', fontsize=12)
-                    #         plt.xticks(range(1, n_layers+1))
-                    #         plt.ylim(0, 1.05)
-                    #         plt.grid(True, linestyle='--', alpha=0.5)
-                            
-                    #         # --- save the figure ---
-                    #         save_path = os.path.join(out_dir, f'{key}_layer_scores.png')
-                    #         plt.savefig(save_path, bbox_inches='tight')
-                    #         plt.close()
-                    #         print(f"✅ Saved figure: {save_path}")
+                        
+                        
+                        # ------------- visualize t2h -------------
+                        lq_img = control_image_pt
+                        prompt = prompt 
+                        maps = torch.stack(dict_maps['t2h'])    # 24 2 24 333 1024 (layer cfg head dim dim)
+                        pos_maps = maps[:,-1]                   # 24 24 333 1024, get cfg pos map [neg, pos]
+                        neg_maps = maps[:, 0]
+                        map = pos_maps.mean(dim=(0,1))              # 333 1024, avg layer and head
 
 
 
-                    # hidden_list_dict = {
-                    #     'hiddens_before': hiddens_before,
-                    #     'ffs_before': ffs_before,
-                    #     'hiddens_after': hiddens_after
-                    # }
-
-
-                    # # # visualize all layers
-                    # scores_all = visualize_sd_features_pca_grid(hidden_list_dict, out_hw=128, mode='all', device='cuda', out_dir='./pca_sd_features_grid')
-                    # # # Save plots
-                    # # save_layer_scores_plot(scores_all, out_dir='./pca_sd_layer_scores')
-
-                    # # visualize averaged layers
-                    # # scores_avg = visualize_sd_features_pca_grid(hidden_list_dict, out_hw=128, mode='avg', device='cuda', out_dir='./pca_sd_features_grid')
-                    # # save_layer_scores_plot(scores_avg, out_dir='./pca_sd_layer_scores')
-                    
-                    
-                    # def select_top_layers(scores_dict, top_k=4):
-                    #     """
-                    #     scores_dict: dict like {'hiddens_before': [score1, score2, ...], ...}
-                    #     top_k: number of layers to select
-
-                    #     Returns a dict of top layer indices per feature type
-                    #     """
-                    #     top_layers = {}
-                    #     for key, scores in scores_dict.items():
-                    #         scores_arr = np.array(scores)
-                    #         # get indices of top_k highest scores
-                    #         top_indices = np.argsort(scores_arr)[-top_k:][::-1]  # descending order
-                    #         top_layers[key] = top_indices
-                    #         print(f"✅ Top {top_k} layers for {key}: {top_indices}, scores: {scores_arr[top_indices]}")
-                    #     return top_layers
-
-                    # top_layers_dict = select_top_layers(scores_all, top_k=4)
-
-
-                    # breakpoint()
                     
                     
                     
                     
                     
                     
-
+    
                     # ts module forward pass 
                     if 'testr' in cfg.train.model:
                         if len(trans_out) > 1:
