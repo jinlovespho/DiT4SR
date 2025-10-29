@@ -284,8 +284,6 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
             return_tensors="pt",
         )
         
-        breakpoint()
-        
         text_input_ids = text_inputs.input_ids
         untruncated_ids = self.tokenizer_3(prompt, padding="longest", return_tensors="pt").input_ids
 
@@ -336,8 +334,6 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
             truncation=True,
             return_tensors="pt",
         )
-        
-        breakpoint()
 
         text_input_ids = text_inputs.input_ids
         untruncated_ids = tokenizer(prompt, padding="longest", return_tensors="pt").input_ids
@@ -1156,16 +1152,31 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
                         
                         
                         
+                        # ------------- prepare img and prompt -------------
+                        lq_img = control_image_pt 
+                        hq_img = kwargs['hq_img']
+                        
+                        clip_prompt_tkn = self.tokenizer(prompt, padding='max_length', max_length=77, truncation=True, return_tensors='pt').input_ids
+                        t5_prompt_tkn = self.tokenizer_3(prompt, padding='max_length', max_length=256, truncation=True, add_special_tokens=True, return_tensors='pt').input_ids
+                        
+                        clip_decode_prompt = self.tokenizer.batch_decode(clip_prompt_tkn)
+                        t5_decode_prompt = self.tokenizer_3.batch_decode(t5_prompt_tkn)
+                        
                         
                         # ------------- visualize h2t -------------
-                        lq_img = control_image_pt
-                        prompt = prompt 
                         maps = torch.stack(dict_maps['h2t'])    # 24 2 24 1024 333 (layer cfg head dim dim)
                         pos_maps = maps[:,-1]                   # 24 24 1024 333, get cfg pos map [neg, pos]
                         neg_maps = maps[:, 0]
                         map = pos_maps.mean(dim=(0,1))              # 1024 333, avg layer and head
 
+
+                        map = map.transpose(0,1)
+                        map_clip = map[0:77] 
+                        map_t5 = map[77:]
                         
+
+                        
+                        breakpoint()
                         
                         
                         # ------------- visualize t2h -------------

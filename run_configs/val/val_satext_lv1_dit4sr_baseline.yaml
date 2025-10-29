@@ -71,6 +71,10 @@ data:
     ocr:
       vis_ocr: False
       vis_timestep: 
+
+
+    attn:
+      vis_map: False
     
 
     # choose from ['crop', 'full']

@@ -125,14 +125,14 @@ ckpt:
     dit: preset/models/dit4sr/dit4sr_q
     ts_module: 
   resume_path:
-    dit: result_train/multigpu_stage1/fp16_stage1_dit4sr_5e-05_lrbranch-attns_ocrlossNone_descriptive_ditfeat24_hidden_after/checkpoint-1000
+    dit: 
     ts_module: 
 
 
 train:
   stage: stage1
   model: ["dit4sr"]
-  lr: [5e-5]
+  lr: [1e-4]
   finetune: [lrbranch, attns]
   mixed_precision: 'fp16'
 
@@ -159,12 +159,12 @@ train:
 
 
 val:
-  val_every_step: 500
+  val_every_step: 1000
 
 
 save:
   output_dir: ./result_train/multigpu_stage1
-  checkpointing_steps: 500
+  checkpointing_steps: 1000
 
 
 log:
@@ -174,7 +174,7 @@ log:
     # project_name: cvpr26_tair_extension
     project_name: cvpr26_tair2_train
     server: 20
-    gpu: 23
+    gpu: 567
     msg: ditfeat24_hidden_after
   log_dir: logs
 

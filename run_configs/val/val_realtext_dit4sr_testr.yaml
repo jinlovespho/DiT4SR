@@ -179,7 +179,7 @@ log:
     # project_name: cvpr26_tair_extension
     project_name: cvpr26_tair2_val
     server: 20
-    gpu: 7
+    gpu: 4
     msg: ""
   log_dir: logs
 

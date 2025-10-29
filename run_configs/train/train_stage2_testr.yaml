@@ -128,7 +128,8 @@ ckpt:
   resume_path:
     # dit: 
     # dit: result_train/fp16_dit4sr_1e-05_lrbranch-attns_ocrlossNone_descriptive_msgDiTfeat24/checkpoint-18000
-    dit: result_train/stage1/fp16_stage1_dit4sr_1e-05_lrbranch-attns_ocrlossNone_descriptive_DiTfeat24/checkpoint-34000
+    # dit: result_train/stage1/fp16_stage1_dit4sr_1e-05_lrbranch-attns_ocrlossNone_descriptive_DiTfeat24/checkpoint-34000
+    dit: result_train/multigpu_stage1/fp16_stage1_dit4sr_1e-04_lrbranch-attns_ocrlossNone_descriptive_ditfeat24_hidden_after/checkpoint-9000
     ts_module: 
 
 
@@ -137,36 +138,41 @@ train:
   model: ["testr"]
   lr: [1e-4]
   finetune: []
-  batch_size: 2
-  num_workers: 4
-  num_train_epochs: 10 # 60k
-  max_train_steps: 
   mixed_precision: 'fp16'
+
+
+  # ----------------------------------
+  #      STAGE2 - MODIFY HERE ! 
+  # ----------------------------------
+  num_train_epochs: 10  # 60k
+  batch_size: 2       
+  num_workers: 4
+  gradient_accumulation_steps: 8
+  
+  
+  max_train_steps: 
   lr_scheduler: "constant"
   lr_warmup_steps: 0
   lr_num_cycles: 1
   lr_power: 1.0
   max_grad_norm: 1.0
   set_grads_to_none: False
-  gradient_checkpointing: True
-  gradient_accumulation_steps: 8
   scale_lr: False
   use_8bit_adam: False
-  ocr_loss_weight: 1.0
-  # ocr_loss_weight: 0.0
+  # ocr_loss_weight: 1.0
   # ocr_loss_weight: 0.01
-  # ocr_loss_weight: 0.1
-  # ocr_loss_weight: 0.005
   
 
 val:
-  val_every_step: 250
+  val_every_step: 500
   # val_every_step: 2
 
 
 save:
-  output_dir: ./result_train/stage2
-  checkpointing_steps: 1000
+  # output_dir: ./result_train/stage2
+  # output_dir: ./result_train/multigpu_stage2
+  output_dir: ./result_train/text_aware_feature_comparison
+  checkpointing_steps: 500
   # checkpointing_steps: 2
 
 
@@ -174,23 +180,10 @@ log:
   tracker: 
     report_to: wandb 
     key: e32eed0c2509bf898b850b0065ab62345005fb73
-    project_name: cvpr26_tair_extension
+    # project_name: cvpr26_tair_extension
+    project_name: cvpr26_tair2_train
     server: 20
-    gpu: 1
-    
-    # msg: DiTfeat4
-    # msg: DiTfeat24_dit4sr_baseline_testr_pretrained
-    # msg: DiTfeat24_dit4sr_lr1e5_ckpt18k_testr_pretrained
-    # msg: DiTfeat24_dit4sr_baseline_testr_scratch
-    # msg: DiTfeat24_dit4sr_lr1e5_ckpt18k_testr_scratch
-
-    # msg: dit_hidden_after_24
-    # msg: dit_hidden_after_12
-    
-    # msg: dit_ff_before_24
-    # msg: dit_ff_before_12
-
-    msg: dit_hidden_before_24
-    # msg: dit_hidden_before_12
+    gpu: 4
+    msg: ditfeat24_hidden_after
 
   log_dir: logs

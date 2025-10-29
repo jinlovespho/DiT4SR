@@ -487,24 +487,11 @@ class JointAttnProcessor2_0:
             value = torch.cat([value, value_control, encoder_hidden_states_value_proj], dim=2)      
             
             # ---------------------------------
-            #       Attn map computation
+            #       MANUAL Attn map saving
             # ---------------------------------
             
-            '''
-                query, key, value: (b head n1+n2+n3 d)
-            '''
-            
-            # from torchvision.utils import save_image 
-            # Compute attention map
-            # self.attn_map = torch.matmul(query, key.transpose(-2, -1))
-            # attn_map = F.softmax(attn_map, dim=-1)
-            # attn_map_head_avg = attn_map.mean(dim=1).unsqueeze(dim=1)
-            # save_image(attn_map_head_avg, './tmp.jpg', normalize=True)
-            
-            # num_img_tkn = 1024 
-            # num_txt_tkn = 333
-            
-            self.attn_map = torch.matmul(query.clone().detach(), key.clone().detach().transpose(-2, -1))
+            # self.attn_map = torch .matmul(query.clone().detach(), key.clone().detach().transpose(-2, -1))
+        
         
         else :
             query = torch.cat([query, query_control], dim=2)
