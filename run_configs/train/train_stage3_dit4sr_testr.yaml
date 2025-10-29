@@ -14,8 +14,8 @@ data:
     null_text_ratio: 0.1
 
   val:
-    # eval_list: []
-    eval_list: [realtext, satext_lv2]
+    eval_list: []
+    # eval_list: [realtext, satext_lv2]
     # eval_list: [realtext, satext_lv3, satext_lv2, satext_lv1]
 
     realtext:
@@ -173,7 +173,9 @@ val:
 save:
   # output_dir: ./result_train/continue_stage3
   # output_dir: ./result_train/text_aware_feature_comparison_stage1
-  output_dir: ./result_train/text_aware_feature_comparison_dit4sr_q
+  # output_dir: ./result_train/text_aware_feature_comparison_dit4sr_q
+  output_dir: ./result_train/TMPTMP
+  
   # checkpointing_steps: 1000
   checkpointing_steps: 500
 

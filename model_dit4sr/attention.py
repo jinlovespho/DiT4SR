@@ -347,7 +347,8 @@ class JointTransformerBlock(nn.Module):
         # # AFTER HIDDEN
         if extract_feat:
             # extract lq added hq feature
-            trans_blk_out['extract_feat'] = hidden_states[:,:n//2].detach()
+            trans_blk_out['extract_feat'] = hidden_states[:,:n//2]
+            # trans_blk_out['extract_feat'] = hidden_states[:,:n//2].detach()
             
 
 

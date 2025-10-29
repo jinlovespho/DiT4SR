@@ -128,10 +128,24 @@ ckpt:
   resume_path:
     # dit: 
     # dit: result_train/fp16_dit4sr_1e-05_lrbranch-attns_ocrlossNone_descriptive_msgDiTfeat24/checkpoint-18000
-    # dit: result_train/stage1/fp16_stage1_dit4sr_1e-05_lrbranch-attns_ocrlossNone_descriptive_DiTfeat24/checkpoint-34000
+    # dit: result_train/multigpu_stage1/fp16_stage1_dit4sr_1e-04_lrbranch-attns_ocrlossNone_descriptive_ditfeat24_hidden_after/checkpoint-9000/
+    
+
+    # -------------------------------
+    #   resume stage2 w/ dit4sr_q
+    # -------------------------------
     dit: 
-    # dit: result_train/multigpu_stage1/fp16_stage1_dit4sr_1e-04_lrbranch-attns_ocrlossNone_descriptive_ditfeat24_hidden_after/checkpoint-9000
-    ts_module: 
+    ts_module: result_train/text_aware_feature_comparison_dit4sr_q/fp16_stage2_testr_1e-04__ocrloss0.01_descriptive_ditfeat24_hidden_after_awarefeatcomparison_dit4sr_q/checkpoint-7000
+
+
+
+    # -------------------------------------
+    #   resume stage2 w/ dit4sr_stage1
+    # -------------------------------------
+    # dit: result_train/stage1/fp16_stage1_dit4sr_1e-05_lrbranch-attns_ocrlossNone_descriptive_DiTfeat24/checkpoint-34000
+    # ts_module: 
+    # ts_module: result_train/text_aware_feature_comparison_dit4sr_stage1/fp16_stage2_testr_1e-04__ocrloss0.01_descriptive_ditfeat24_hidden_after_awarefeatcomparison/checkpoint-7000
+    
 
 
 train:
@@ -146,7 +160,7 @@ train:
   #      STAGE2 - MODIFY HERE ! 
   # ----------------------------------
   num_train_epochs: 10  # 60k
-  batch_size: 1  
+  batch_size: 2
   num_workers: 4
   gradient_accumulation_steps: 8
   
@@ -160,8 +174,8 @@ train:
   set_grads_to_none: False
   scale_lr: False
   use_8bit_adam: False
-  # ocr_loss_weight: 1.0
-  ocr_loss_weight: 0.01
+  ocr_loss_weight: 1.0
+  # ocr_loss_weight: 0.01
   
 
 val:
@@ -172,10 +186,22 @@ val:
 save:
   # output_dir: ./result_train/stage2
   # output_dir: ./result_train/multigpu_stage2
+  
+
+  # -------------------------------
+  #   resume stage2 w/ dit4sr_q
+  # -------------------------------
+  # output_dir: ./result_train/text_aware_feature_comparison_dit4sr_q
+  output_dir: ./result_train/text_aware_feature_comparison_dit4sr_q_continue7k
+
+
+  # -------------------------------------
+  #   resume stage2 w/ dit4sr_stage1
+  # -------------------------------------
   # output_dir: ./result_train/text_aware_feature_comparison_stage1
-  output_dir: ./result_train/text_aware_feature_comparison_dit4sr_q
+  # output_dir: ./result_train/text_aware_feature_comparison_stage1_continue7k
+
   checkpointing_steps: 500
-  # checkpointing_steps: 2
 
 
 log:
@@ -185,9 +211,24 @@ log:
     # project_name: cvpr26_tair_extension
     project_name: cvpr26_tair2_train
     server: 20
-    gpu: 0
+    gpu: 2
     # msg: ditfeat24_hidden_after
-    # msg: ditfeat24_hidden_after_awarefeatcomparison_stage1
-    msg: ditfeat24_hidden_after_awarefeatcomparison_dit4sr_q
+
+
+    # -------------------------------
+    #   resume stage2 w/ dit4sr_q
+    # -------------------------------
+    
+    # msg: ditfeat24_hidden_after_awarefeatcomparison_dit4sr_q
+    msg: ditfeat24_hidden_after_awarefeatcomparison_dit4sr_q_continue7k
+    
+
+
+    # -------------------------------------
+    #   resume stage2 w/ dit4sr_stage1
+    # -------------------------------------
+
+    # msg: ditfeat24_hidden_after_awarefeatcomparison_dit4sr_stage1
+    # msg: ditfeat24_hidden_after_awarefeatcomparison_dit4sr_stage1_continue7k
 
   log_dir: logs

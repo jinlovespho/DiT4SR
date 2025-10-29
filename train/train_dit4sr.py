@@ -304,7 +304,6 @@ def main(cfg):
                 )
                 diff_loss = diff_loss.mean()
 
-
                 # ts module loss 
                 if 'testr' in cfg.train.model:
                     # process annotations for OCR training loss
@@ -362,9 +361,16 @@ def main(cfg):
 
                 if accelerator.is_main_process:
                     if global_step % cfg.save.checkpointing_steps == 0:
-                        # save transformer
+                        
+                        # set save directory
                         save_path = os.path.join(cfg.save.output_dir, exp_name, f"checkpoint-{global_step}")
-                        accelerator.save_state(save_path)
+                        os.makedirs(save_path, exist_ok=True)
+                        
+                        # save transformer
+                        if 'dit4sr' in cfg.train.model:
+                            accelerator.save_state(save_path)
+                        
+                        # save text spotting module 
                         if 'testr' in cfg.train.model:
                             # save ts_module
                             ts_ckpt = {}

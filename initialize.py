@@ -521,6 +521,7 @@ def load_optim(cfg, accelerator, models):
         testr_params = list(filter(lambda p: p.requires_grad, models['testr'].parameters()))
         param_groups.append({"params": testr_params, "lr": model_lr['testr']})
 
+
     # optimizer
     optimizer = optimizer_class(
         param_groups,
