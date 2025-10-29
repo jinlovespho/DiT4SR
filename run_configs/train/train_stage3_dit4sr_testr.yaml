@@ -11,7 +11,7 @@ data:
     ann_path: /mnt/dataset1/text_restoration/100K/train/dataset.json
     # hq_prompt_path: /mnt/dataset1/text_restoration/100K/dit4sr/data/train/llava13b_hq_prompt
     hq_prompt_path: 
-    null_text_ratio: 0.0 
+    null_text_ratio: 0.1
 
   val:
     # eval_list: []
@@ -62,13 +62,31 @@ data:
 
 
     # choose from [gt, pred_tsm, pred_vlm, null]
-    text_cond_prompt: pred_tsm
+    text_cond_prompt: "pred_tsm"
+
+
+    ocr:
+      vis_ocr: True
+      # vis_timestep: [-1] # visualize all timesteps
+      vis_timestep: [0, 1, 2, 3, 4, 5, 10, 20, 30, 39]  # visualize selected time iter
     
-    negative_prompt:
+
+    attn:
+      vis_map: False
+
+
+    # choose from ['crop', 'full']
+    eval_region: all
+
+
+
+    added_prompt: Cinematic, hyper sharpness, highly detailed, perfect without deformations, camera, hyper detailed photo - realistic maximum detail, 32k, Color Grading, ultra HD, extreme meticulous detailing, skin pore detailing.
+    negative_prompt: motion blur, noisy, dotted, bokeh, pointed, CG Style, 3D render, unreal engine, blurring, dirty, messy, worst quality, low quality, frames, watermark, signature, jpeg artifacts, deformed, lowres, chaotic
     save_prompts: True
     sample_times: 1
     guidance_scale: 1.0
-    start_point: lr
+    # guidance_scale: 8.0
+    start_point: noise
     latent_tiled_size: 64
     latent_tiled_overlap: 24
     upscale: 4
@@ -104,19 +122,24 @@ ckpt:
     noise_scheduler: preset/models/stable-diffusion-3.5-medium
     tokenizer: preset/models/stable-diffusion-3.5-medium
     text_encoder: preset/models/stable-diffusion-3.5-medium
-    # dit: preset/models/dit4sr/dit4sr_q
-    # ts_module: preset/models/testr/totaltext_testr_R_50_polygon.pth
-    dit:
-    ts_module:
+    
+    # dit:
+    dit: preset/models/dit4sr/dit4sr_q
+    # ts_module:
+    ts_module: preset/models/testr/totaltext_testr_R_50_polygon.pth
+
   resume_path:
-    dit: result_train/stage2/fp16_stage2_testr_1e-04__ocrloss0.01_descriptive_DiTfeat24_dit4sr_lr1e5_ckpt18k_testr_pretrained/checkpoint-6000
-    ts_module: result_train/stage2/fp16_stage2_testr_1e-04__ocrloss0.01_descriptive_DiTfeat24_dit4sr_lr1e5_ckpt18k_testr_pretrained/checkpoint-6000
+    # dit: result_train/stage2/fp16_stage2_testr_1e-04__ocrloss0.01_descriptive_DiTfeat24_dit4sr_lr1e5_ckpt18k_testr_pretrained/checkpoint-6000    
+    # dit: result_train/stage1/fp16_stage1_dit4sr_1e-05_lrbranch-attns_ocrlossNone_descriptive_DiTfeat24/checkpoint-34000
+    dit: 
+    ts_module:
+    # ts_module: result_train/stage2/fp16_stage2_testr_1e-04__ocrloss0.01_descriptive_DiTfeat24_dit4sr_lr1e5_ckpt18k_testr_pretrained/checkpoint-6000
 
 
 train:
   stage: stage3
   model: ["dit4sr", "testr"]
-  lr: [5e-6, 5e-5]
+  lr: [5e-6, 1e-4]
   finetune: [lrbranch, attns]
   mixed_precision: 'fp16'
 
@@ -143,12 +166,16 @@ train:
   
 
 val:
-  val_every_step: 100
+  # val_every_step: 100
+  val_every_step: 500
 
 
 save:
-  output_dir: ./result_train/continue_stage3
-  checkpointing_steps: 1000
+  # output_dir: ./result_train/continue_stage3
+  # output_dir: ./result_train/text_aware_feature_comparison_stage1
+  output_dir: ./result_train/text_aware_feature_comparison_dit4sr_q
+  # checkpointing_steps: 1000
+  checkpointing_steps: 500
 
 
 log:
@@ -158,6 +185,8 @@ log:
     # project_name: cvpr26_tair_extension
     project_name: cvpr26_tair2_train
     server: 20
-    gpu: 4
-    msg: ditfeat24_hidden_after
+    gpu: 1
+    # msg: ditfeat24_hidden_after
+    # msg: ditfeat24_hidden_after_awarefeatcomparison_stage1
+    msg: ditfeat24_hidden_after_awarefeatcomparison_dit4sr_q
   log_dir: logs

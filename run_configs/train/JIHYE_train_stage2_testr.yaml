@@ -67,6 +67,9 @@ data:
       vis_ocr: False
       vis_timestep: []
 
+    attn:
+      vis_map: False
+      
     # choose from ['crop', 'full']
     eval_region: 
 
@@ -124,7 +127,7 @@ ckpt:
 train:
   stage: stage2
   model: ["testr"]
-  lr: [5e-5]
+  lr: [1e-4]
   finetune: []
   mixed_precision: 'fp16'
 

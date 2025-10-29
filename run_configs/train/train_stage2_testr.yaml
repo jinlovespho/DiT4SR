@@ -11,7 +11,7 @@ data:
     ann_path: /mnt/dataset1/text_restoration/100K/train/dataset.json
     # hq_prompt_path: /mnt/dataset1/text_restoration/100K/dit4sr/data/train/llava13b_hq_prompt
     hq_prompt_path: 
-    null_text_ratio: 0.0 
+    null_text_ratio: 0.1
 
   val:
     # eval_list: []
@@ -84,8 +84,8 @@ data:
     negative_prompt: motion blur, noisy, dotted, bokeh, pointed, CG Style, 3D render, unreal engine, blurring, dirty, messy, worst quality, low quality, frames, watermark, signature, jpeg artifacts, deformed, lowres, chaotic
     save_prompts: True
     sample_times: 1
-    # guidance_scale: 1.0
-    guidance_scale: 8.0
+    guidance_scale: 1.0
+    # guidance_scale: 8.0
     start_point: noise
     latent_tiled_size: 64
     latent_tiled_overlap: 24
@@ -129,7 +129,8 @@ ckpt:
     # dit: 
     # dit: result_train/fp16_dit4sr_1e-05_lrbranch-attns_ocrlossNone_descriptive_msgDiTfeat24/checkpoint-18000
     # dit: result_train/stage1/fp16_stage1_dit4sr_1e-05_lrbranch-attns_ocrlossNone_descriptive_DiTfeat24/checkpoint-34000
-    dit: result_train/multigpu_stage1/fp16_stage1_dit4sr_1e-04_lrbranch-attns_ocrlossNone_descriptive_ditfeat24_hidden_after/checkpoint-9000
+    dit: 
+    # dit: result_train/multigpu_stage1/fp16_stage1_dit4sr_1e-04_lrbranch-attns_ocrlossNone_descriptive_ditfeat24_hidden_after/checkpoint-9000
     ts_module: 
 
 
@@ -145,7 +146,7 @@ train:
   #      STAGE2 - MODIFY HERE ! 
   # ----------------------------------
   num_train_epochs: 10  # 60k
-  batch_size: 2       
+  batch_size: 1  
   num_workers: 4
   gradient_accumulation_steps: 8
   
@@ -160,7 +161,7 @@ train:
   scale_lr: False
   use_8bit_adam: False
   # ocr_loss_weight: 1.0
-  # ocr_loss_weight: 0.01
+  ocr_loss_weight: 0.01
   
 
 val:
@@ -171,7 +172,8 @@ val:
 save:
   # output_dir: ./result_train/stage2
   # output_dir: ./result_train/multigpu_stage2
-  output_dir: ./result_train/text_aware_feature_comparison
+  # output_dir: ./result_train/text_aware_feature_comparison_stage1
+  output_dir: ./result_train/text_aware_feature_comparison_dit4sr_q
   checkpointing_steps: 500
   # checkpointing_steps: 2
 
@@ -183,7 +185,9 @@ log:
     # project_name: cvpr26_tair_extension
     project_name: cvpr26_tair2_train
     server: 20
-    gpu: 4
-    msg: ditfeat24_hidden_after
+    gpu: 0
+    # msg: ditfeat24_hidden_after
+    # msg: ditfeat24_hidden_after_awarefeatcomparison_stage1
+    msg: ditfeat24_hidden_after_awarefeatcomparison_dit4sr_q
 
   log_dir: logs
