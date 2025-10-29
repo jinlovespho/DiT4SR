@@ -150,7 +150,7 @@ train:
   set_grads_to_none: False
   scale_lr: False
   use_8bit_adam: False
-  ocr_loss_weight: 0.01
+  ocr_loss_weight: 1.0
   
 
 val:
