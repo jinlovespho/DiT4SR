@@ -69,8 +69,7 @@ data:
       vis_timestep: [0, 1, 2, 3, 4, 5, 10, 20, 30, 39]  # visualize selected time iter
     
 
-    # choose from ['crop', 'full']
-    eval_region: full
+    eval_region: all
     
   
     added_prompt: Cinematic, hyper sharpness, highly detailed, perfect without deformations, camera, hyper detailed photo - realistic maximum detail, 32k, Color Grading, ultra HD, extreme meticulous detailing, skin pore detailing.
@@ -78,8 +77,8 @@ data:
     save_prompts: True
     sample_times: 1
     
-    # guidance_scale: 1.0
-    guidance_scale: 8.0
+    guidance_scale: 1.0
+    # guidance_scale: 8.0
     
     start_point: noise
 

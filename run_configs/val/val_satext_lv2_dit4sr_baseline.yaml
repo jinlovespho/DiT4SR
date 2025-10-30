@@ -44,8 +44,7 @@ data:
       ann_path: /mnt/dataset1/text_restoration/100K/test/dataset.json
       vlm_captioner: llava_13b
       vlm_input_ques: 0
-      vlm_caption_path: 
-      # vlm_caption_path: result_vlm/orig_dit4sr/satext_lv2/llava13b_prompt
+      vlm_caption_path: result_vlm/orig_dit4sr/satext_lv2/llava13b_prompt
       val_num_img: 1000
       val_img_id: []
 
@@ -77,8 +76,7 @@ data:
       vis_map: False
       
 
-    # choose from ['crop', 'full']
-    eval_region: crop
+    eval_region: all
     
 
     added_prompt: Cinematic, hyper sharpness, highly detailed, perfect without deformations, camera, hyper detailed photo - realistic maximum detail, 32k, Color Grading, ultra HD, extreme meticulous detailing, skin pore detailing.

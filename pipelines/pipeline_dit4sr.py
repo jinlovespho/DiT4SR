@@ -1117,7 +1117,6 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
                     noise_pred = trans_out[0]
                     
                     
-                    
                     if cfg.data.val.attn.vis_map:
                         # ------------------------------------
                         #            VIS ATTN MAP 

@@ -22,11 +22,9 @@ data:
       ann_path: /mnt/dataset1/text_restoration/tair_published/real_text/realtext_ann.json
       vlm_captioner: llava13b
       vlm_input_ques: 0
-      vlm_caption_path: 
-      # vlm_caption_path: result_vlm/orig_dit4sr/realtext/llava13b_prompt
+      vlm_caption_path: result_vlm/orig_dit4sr/realtext/llava13b_prompt
       val_num_img: 847
       # val_img_id: []
-      # val_img_id: [Canon_41_x4_35_crop_0, Canon_81_x4_25_crop_0, DSC_0980_x4_21_crop_0, DSC_0984_x4_2_crop_0]
       val_img_id: [Canon_001_HR_crop_1, Canon_21_x4_5_crop_0, Canon_24_x4_21_crop_0, Canon_30_x4_44_crop_0, Canon_31_x4_52_crop_0, Canon_32_x4_21_crop_0, Canon_32_x4_23_crop_0, Canon_33_x4_33_crop_0, Canon_37_x4_45_crop_0, Canon_41_x4_32_crop_0, Canon_41_x4_35_crop_0, DSC_0972_x4_13_crop_0, DSC_0984_x4_2_crop_0, DSC_0984_x4_6_crop_0, DSC_1023_x4_16_crop_0, DSC_1330_x4_4_crop_0, DSC_1342_x4_6_crop_0,  ]
 
 
@@ -78,7 +76,7 @@ data:
       vis_map: False
       
     
-    # choose from ['crop', 'full']
+
     eval_region: all
 
 
@@ -172,13 +170,13 @@ save:
   # output_dir: ./result_val/few_eval
   # output_dir: ./result_val/full_eval
   # output_dir: ./result_val_dit4sr_2nd/full_eval
-  output_dir: ./result_val_dit4sr_2nd/few_eval/TMP
+  output_dir: ./result_val_dit4sr_2nd/few_eval
   checkpointing_steps: 
 
 
 log:
   tracker: 
-    report_to: wandba
+    report_to: wandb
     key: e32eed0c2509bf898b850b0065ab62345005fb73
     # project_name: cvpr26_tair_extension
     project_name: cvpr26_tair2_val

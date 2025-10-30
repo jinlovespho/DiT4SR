@@ -172,7 +172,7 @@ def load_trackers(cfg, accelerator, exp_name):
         )
 
 
-def load_val_data(val_data):
+def load_val_data(val_data, cfg):
     files=[]
     # load lq, hq
     lq_paths = sorted(glob.glob(f'{val_data.lq_img_path}/*.jpg'))
@@ -197,25 +197,12 @@ def load_val_data(val_data):
         if (len(val_data.val_img_id) != 0) and (lq_id not in val_data.val_img_id):
             continue 
         
-        
-        # # load precomputed vlm captions
-        # if (val_data.vlm_captioner is not None) and (val_data.vlm_caption_path is not None):
-        #     breakpoint()
-        #     dataset = val_data.vlm_caption_path.split('/')[-1]
-        #     vlm_captions_txt = sorted(glob.glob(f"{val_data.vlm_caption_path}/{dataset}_Englishques{str(val_data.vlm_input_ques)}/{val_data.vlm_captioner}/*.txt"))
-        #     vlm_caption_txt = vlm_captions_txt[val_idx]
-        #     vlm_cap_id = vlm_caption_txt.split('/')[-1].split('.')[0]
-        #     assert vlm_cap_id == lq_id == hq_id == ann_id
-        #     with open(f'{vlm_caption_txt}', 'r') as f:
-        #         vlm_cap = f.read().strip()
-        # else:
-        #     vlm_cap = None
-        
         # load precomputed vlm captions
-        if val_data.vlm_caption_path is not None:
+        if (cfg.data.val.text_cond_prompt == 'pred_vlm') and (val_data.vlm_caption_path is not None):
             vlm_captions_txt = sorted(glob.glob(f"{val_data.vlm_caption_path}/*.txt"))
             vlm_caption_txt = vlm_captions_txt[val_idx]
             vlm_cap_id = vlm_caption_txt.split('/')[-1].split('.')[0]
+            # safety check
             assert vlm_cap_id == lq_id == hq_id == ann_id
             with open(f'{vlm_caption_txt}', 'r') as f:
                 vlm_cap = f.read().strip()
@@ -293,13 +280,13 @@ def load_data(cfg):
     # validation data
     validation_data={}
     if 'realtext' in cfg.data.val.eval_list:
-        validation_data['realtext']=load_val_data(cfg.data.val.realtext)
+        validation_data['realtext']=load_val_data(cfg.data.val.realtext, cfg)
     if 'satext_lv3' in cfg.data.val.eval_list:
-        validation_data['satext_lv3']=load_val_data(cfg.data.val.satext_lv3)
+        validation_data['satext_lv3']=load_val_data(cfg.data.val.satext_lv3, cfg)
     if 'satext_lv2' in cfg.data.val.eval_list:
-        validation_data['satext_lv2']=load_val_data(cfg.data.val.satext_lv2)
+        validation_data['satext_lv2']=load_val_data(cfg.data.val.satext_lv2, cfg)
     if 'satext_lv1' in cfg.data.val.eval_list:
-        validation_data['satext_lv1']=load_val_data(cfg.data.val.satext_lv1)
+        validation_data['satext_lv1']=load_val_data(cfg.data.val.satext_lv1, cfg)
 
     return train_loader, validation_data
 

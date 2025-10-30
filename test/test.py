@@ -34,29 +34,35 @@ logger = get_logger(__name__)
 def main(cfg):
     
     
-    # global reproducability
+    
+    # ----------------------------------------
+    #         Global reproducability
+    # ----------------------------------------
     if cfg.init.seed is not None:
         set_seed(cfg.init.seed)  # seeds Python, NumPy, and PyTorch globally
     
     
-    # safety check 
+    
+    
+    # ----------------------------------------
+    #             Safety check 
+    # ----------------------------------------
     val_data_name = cfg.data.val.eval_list[0]
     assert val_data_name in ['realtext', 'satext_lv3', 'satext_lv2', 'satext_lv1']
     
     
     
-    # set experiment name
+    
+    # ----------------------------------------
+    #           Set experiment name
+    # ----------------------------------------
     if cfg.ckpt.resume_path.dit is not None:
         exp_name = cfg.ckpt.resume_path.dit.split('/')[-2]        
     else:
         exp_name = f'dit4sr_baseline'
-        
-        
     exp_name = f'{cfg.data.val.eval_region}__{exp_name}__startpoint-{cfg.data.val.start_point}__alignmethod-{cfg.data.val.align_method}__cfg-{int(cfg.data.val.guidance_scale)}'
     
-    
     if cfg.data.val.text_cond_prompt == 'pred_vlm':
-        
         if cfg.data.val.eval_list[0] == 'realtext':
             vlm_captioner = cfg.data.val.realtext.vlm_captioner
             vlm_input_ques = cfg.data.val.realtext.vlm_input_ques
@@ -69,7 +75,7 @@ def main(cfg):
         elif cfg.data.val.eval_list[0] == 'satext_lv1':
             vlm_captioner = cfg.data.val.satext_lv1.vlm_captioner
             vlm_input_ques = cfg.data.val.satext_lv1.vlm_input_ques
-            
+        
         cfg.vlm_captioner = vlm_captioner
         cfg.vlm_input_ques_num = vlm_input_ques
         
@@ -88,17 +94,24 @@ def main(cfg):
     else:
         exp_name = f'{exp_name}__{cfg.data.val.text_cond_prompt}-prompt'
     
-    
     exp_name = f'{exp_name}__{cfg.log.tracker.msg}'
     cfg.exp_name = exp_name
     print('- EXP NAME: ', exp_name)
 
-    
-    # set val save directory 
+
+
+
+    # ----------------------------------------
+    #         Eval saving directory 
+    # ----------------------------------------
     os.makedirs(f'{cfg.save.output_dir}/{val_data_name}/{exp_name}', exist_ok=True)
     
     
-    # set accelerator and wandb 
+    
+    
+    # ----------------------------------------
+    #       Set accelerator and wandb 
+    # ----------------------------------------
     accelerator = Accelerator(mixed_precision=cfg.train.mixed_precision)
     if accelerator.is_main_process and cfg.log.tracker.report_to == 'wandb':
         wandb.login(key=cfg.log.tracker.key)
@@ -108,38 +121,56 @@ def main(cfg):
             config=OmegaConf.to_container(cfg, resolve=True)
         )
     
-
-    # load val data
+    
+    
+    # -------------------------------------
+    #           load val data
+    # -------------------------------------
     _, val_datasets = initialize.load_data(cfg)
 
-    
-    # load models 
+
+
+    # -------------------------------------
+    #           load models 
+    # -------------------------------------
     models = initialize.load_model(cfg, accelerator)
     
 
-    # place models on cuda and proper weight dtype(float32, float16)
+
+    # -------------------------------------------------
+    #   set cuda and proper dtype(float32, float16)
+    # -------------------------------------------------
     weight_dtype = initialize.set_model_device(cfg, accelerator, models)
 
 
-    # SR metrics
+
+    # -----------------------------------
+    #            SR metrics
+    # -----------------------------------
     metric_psnr = pyiqa.create_metric('psnr', device=accelerator.device)
     metric_ssim = pyiqa.create_metric('ssimc', device=accelerator.device)
     metric_lpips = pyiqa.create_metric('lpips', device=accelerator.device)
     metric_dists = pyiqa.create_metric('dists', device=accelerator.device)
-    # metric_fid = pyiqa.create_metric('fid', device=device)
     metric_niqe = pyiqa.create_metric('niqe', device=accelerator.device)
     metric_musiq = pyiqa.create_metric('musiq', device=accelerator.device)
     metric_maniqa = pyiqa.create_metric('maniqa', device=accelerator.device)
     metric_clipiqa = pyiqa.create_metric('clipiqa', device=accelerator.device)
 
 
-    # load tsm
+
+    # -----------------------------------
+    #            load tsm
+    # -----------------------------------
     if 'testr' in cfg.train.model:
         ts_module = models['testr'] 
     else:
         ts_module = None 
-        
-    # load validation pipeline
+    
+    
+    
+    # -----------------------------------
+    #     load validation pipeline
+    # -----------------------------------
     val_pipeline = StableDiffusion3ControlNetPipeline(
         vae=models['vae'], text_encoder=models['text_encoders'][0], text_encoder_2=models['text_encoders'][1], text_encoder_3=models['text_encoders'][2], 
         tokenizer=models['tokenizers'][0], tokenizer_2=models['tokenizers'][1], tokenizer_3=models['tokenizers'][2], 
@@ -147,15 +178,22 @@ def main(cfg):
     )
 
 
+
+    # -----------------------
+    #     image metric
+    # -----------------------
     metrics={}
 
 
-    # val loop
+
+    # ------------------------------------------
+    #        validation loop (per dataset)
+    # ------------------------------------------
     for val_data_name, val_data in val_datasets.items():
 
 
         # -------------------------------------------------------------------------
-        # Initialize metric containers for full-image and cropped-image evaluation
+        # Initialize metric for full-image and cropped-image evaluation
         # -------------------------------------------------------------------------
 
         # ===== Full image metrics =====
@@ -201,11 +239,18 @@ def main(cfg):
 
 
 
+        # ------------------------------------------
+        #        validation loop (per sample)
+        # ------------------------------------------
         for sample_idx, val_sample in enumerate(val_data):
             
+            
+            # print exp ifo
             print('-------------------------------------------------')
             print(f'{cfg.data.val.eval_region} - {val_data_name} - {sample_idx+1}/{len(val_data)} - using {cfg.data.val.text_cond_prompt}prompt') 
             
+            
+            # set seed 
             generator = None
             if accelerator.is_main_process and cfg.init.seed is not None:
                 generator = torch.Generator(device=accelerator.device)
@@ -221,8 +266,10 @@ def main(cfg):
             val_img_id = val_sample['img_id']
             val_vlm_cap = val_sample['vlm_cap']
             
+            
             # process hq image 
             val_hq_pil = Image.open(val_hq_path).convert("RGB") 
+            
             
             # process lq image 
             val_lq_pil = Image.open(val_lq_path).convert("RGB") # 128 128 
@@ -239,7 +286,7 @@ def main(cfg):
 
             
             # -------------------------------------------------
-            #       input prompt to diffusion model
+            #       set input prompt to diffusion model
             # -------------------------------------------------
             
             # gt prompt 
@@ -287,7 +334,6 @@ def main(cfg):
             
             
             
-            
             # retrieve restored image 
             val_res_pil = val_out[0][0]   # 1 3 512 512 [0,1]
             
@@ -306,7 +352,6 @@ def main(cfg):
             val_res_pil.save(f'{val_res_save_path}/{val_img_id}.png')
             
 
-            
             
             
             # ---------------------------------------
@@ -328,7 +373,6 @@ def main(cfg):
             
             
     
-
             # ----------------------------------------------
             #   Eval on full image
             # ----------------------------------------------
@@ -368,8 +412,8 @@ def main(cfg):
             # ----------------------------------------------
             #   Eval on bbox cropped text regions
             # ----------------------------------------------
-            bbox_metrics = {k: [] for k in ['crop_psnr','crop_ssim','crop_lpips','crop_dists','crop_niqe','crop_musiq','crop_maniqa','crop_clipiqa']}
-            bbox_metrics_norm = {k: [] for k in ['crop_norm_psnr','crop_norm_ssim','crop_norm_lpips','crop_norm_dists','crop_norm_niqe','crop_norm_musiq','crop_norm_maniqa','crop_norm_clipiqa']}
+            bbox_metrics = {k: [] for k in ['crop_psnr','crop_ssim','crop_lpips','crop_dists', 'crop_niqe','crop_musiq','crop_maniqa','crop_clipiqa']}
+            bbox_metrics_norm = {k: [] for k in ['crop_norm_psnr','crop_norm_ssim','crop_norm_lpips','crop_norm_dists', 'crop_norm_niqe','crop_norm_musiq','crop_norm_maniqa','crop_norm_clipiqa']}
 
             # Define a dictionary of metric functions
             metric_fn_dict = {
@@ -435,120 +479,18 @@ def main(cfg):
                 f.write(f"{'Metric':<10} | {'Full':>10} | {'Full (Norm)':>14} | {'Crop (Avg)':>12} | {'Crop Norm (Avg)':>16}\n")
                 f.write("-"*100 + "\n")
 
-                metrics_order = ['psnr','ssim','lpips','dists','niqe','musiq','maniqa','clipiqa']
+                metrics_order = ['psnr','ssim','lpips','dists', 'niqe','musiq','maniqa','clipiqa']
                 for m in metrics_order:
                     full_val = full_metrics[m]
                     full_norm_val = full_norm_metrics[m]
                     crop_val = np.mean(bbox_metrics[f'crop_{m}']) if f'crop_{m}' in bbox_metrics else 0.0
                     crop_norm_val = np.mean(bbox_metrics_norm[f'crop_norm_{m}']) if f'crop_norm_{m}' in bbox_metrics_norm else 0.0
                     f.write(f"{m.upper():<10} | {full_val:>10.4f} | {full_norm_val:>14.4f} | {crop_val:>12.4f} | {crop_norm_val:>16.4f}\n")
-
                 f.write("="*100 + "\n")
 
 
             
             
-            
-            # # ----------------------------------------------
-            # #   Eval on full image
-            # # ----------------------------------------------
-            # metrics[f'{val_data_name}_full_psnr'].append(torch.mean(metric_psnr(val_res_pt, val_hq_pt)).item())
-            # metrics[f'{val_data_name}_full_ssim'].append(torch.mean(metric_ssim(val_res_pt, val_hq_pt)).item())
-            # metrics[f'{val_data_name}_full_lpips'].append(torch.mean(metric_lpips(val_res_pt, val_hq_pt)).item())
-            # metrics[f'{val_data_name}_full_dists'].append(torch.mean(metric_dists(val_res_pt, val_hq_pt)).item())
-            # metrics[f'{val_data_name}_full_niqe'].append(torch.mean(metric_niqe(val_res_pt, val_hq_pt)).item())
-            # metrics[f'{val_data_name}_full_musiq'].append(torch.mean(metric_musiq(val_res_pt, val_hq_pt)).item())
-            # metrics[f'{val_data_name}_full_maniqa'].append(torch.mean(metric_maniqa(val_res_pt, val_hq_pt)).item())
-            # metrics[f'{val_data_name}_full_clipiqa'].append(torch.mean(metric_clipiqa(val_res_pt, val_hq_pt)).item())
-
-            # # Min–max normalization for full image
-            # val_res_pt_norm = (val_res_pt - val_res_pt.min()) / (val_res_pt.max() - val_res_pt.min() + 1e-8)
-            # val_hq_pt_norm = (val_hq_pt - val_hq_pt.min()) / (val_hq_pt.max() - val_hq_pt.min() + 1e-8)
-
-            # metrics[f'{val_data_name}_full_norm_psnr'].append(torch.mean(metric_psnr(val_res_pt_norm, val_hq_pt_norm)).item())
-            # metrics[f'{val_data_name}_full_norm_ssim'].append(torch.mean(metric_ssim(val_res_pt_norm, val_hq_pt_norm)).item())
-            # metrics[f'{val_data_name}_full_norm_lpips'].append(torch.mean(metric_lpips(val_res_pt_norm, val_hq_pt_norm)).item())
-            # metrics[f'{val_data_name}_full_norm_dists'].append(torch.mean(metric_dists(val_res_pt_norm, val_hq_pt_norm)).item())
-            # metrics[f'{val_data_name}_full_norm_niqe'].append(torch.mean(metric_niqe(val_res_pt_norm, val_hq_pt_norm)).item())
-            # metrics[f'{val_data_name}_full_norm_musiq'].append(torch.mean(metric_musiq(val_res_pt_norm, val_hq_pt_norm)).item())
-            # metrics[f'{val_data_name}_full_norm_maniqa'].append(torch.mean(metric_maniqa(val_res_pt_norm, val_hq_pt_norm)).item())
-            # metrics[f'{val_data_name}_full_norm_clipiqa'].append(torch.mean(metric_clipiqa(val_res_pt_norm, val_hq_pt_norm)).item())
-            
-
-
-
-
-            # # ----------------------------------------------
-            # #   Eval on bbox cropped text regions
-            # # ----------------------------------------------
-            # bbox_metrics = {k: [] for k in ['crop_psnr', 'crop_ssim', 'crop_lpips', 'crop_dists', 'crop_niqe', 'crop_musiq', 'crop_maniqa', 'crop_clipiqa']}
-            # bbox_metrics_norm = {k: [] for k in ['crop_norm_psnr', 'crop_norm_ssim', 'crop_norm_lpips', 'crop_norm_dists', 'crop_norm_niqe', 'crop_norm_musiq', 'crop_norm_maniqa', 'crop_norm_clipiqa']}
-            
-            # MIN_SAFE_SIZE = 96  # empirically safe for NIQE and other full-reference metrics
-            
-            # for bbox in val_bbox:
-            #     x1, y1, x2, y2 = map(int, bbox)
-
-            #     # Crop bbox region
-            #     res_crop = val_res_pt[:, :, y1:y2, x1:x2]
-            #     hq_crop = val_hq_pt[:, :, y1:y2, x1:x2]
-
-            #     Hc, Wc = res_crop.shape[-2:]
-            #     # print(f"Original crop size: {Hc}x{Wc}")
-
-
-            #     # ---- Check and upsample if too small ----
-            #     if Hc < MIN_SAFE_SIZE or Wc < MIN_SAFE_SIZE:
-            #         # Compute uniform scaling factor to preserve aspect ratio
-            #         crop_scale = max(MIN_SAFE_SIZE / Hc, MIN_SAFE_SIZE / Wc)
-            #         new_h, new_w = int(round(Hc * crop_scale)), int(round(Wc * crop_scale))
-            #         # print(f" Upsampling from {Hc}x{Wc} → {new_h}x{new_w}")
-            #         res_crop = F.interpolate(res_crop, size=(new_h, new_w), mode='bilinear', align_corners=False)
-            #         hq_crop  = F.interpolate(hq_crop,  size=(new_h, new_w), mode='bilinear', align_corners=False)
-
-
-            #     # # visualize cropped texts 
-            #     # save_image(val_res_pt, './img_res.jpg')
-            #     # save_image(val_hq_pt, './img_hq.jpg')
-            #     # save_image(res_crop, './img_res_crop.jpg')
-            #     # save_image(hq_crop, './img_hq_crop.jpg')
-                
-
-            #     # --------- Original metrics on cropped region ---------
-            #     bbox_metrics['crop_psnr'].append(torch.mean(metric_psnr(res_crop, hq_crop)).item())
-            #     bbox_metrics['crop_ssim'].append(torch.mean(metric_ssim(res_crop, hq_crop)).item())
-            #     bbox_metrics['crop_lpips'].append(torch.mean(metric_lpips(res_crop, hq_crop)).item())
-            #     bbox_metrics['crop_dists'].append(torch.mean(metric_dists(res_crop, hq_crop)).item())
-            #     bbox_metrics['crop_niqe'].append(torch.mean(metric_niqe(res_crop, hq_crop)).item())
-            #     bbox_metrics['crop_musiq'].append(torch.mean(metric_musiq(res_crop, hq_crop)).item())
-            #     bbox_metrics['crop_maniqa'].append(torch.mean(metric_maniqa(res_crop, hq_crop)).item())
-            #     bbox_metrics['crop_clipiqa'].append(torch.mean(metric_clipiqa(res_crop, hq_crop)).item())
-
-
-            #     # --------- Min–max normalization per cropped region ---------
-            #     res_crop_norm = (res_crop - res_crop.min()) / (res_crop.max() - res_crop.min() + 1e-8)
-            #     hq_crop_norm = (hq_crop - hq_crop.min()) / (hq_crop.max() - hq_crop.min() + 1e-8)
-
-            #     bbox_metrics_norm['crop_norm_psnr'].append(torch.mean(metric_psnr(res_crop_norm, hq_crop_norm)).item())
-            #     bbox_metrics_norm['crop_norm_ssim'].append(torch.mean(metric_ssim(res_crop_norm, hq_crop_norm)).item())
-            #     bbox_metrics_norm['crop_norm_lpips'].append(torch.mean(metric_lpips(res_crop_norm, hq_crop_norm)).item())
-            #     bbox_metrics_norm['crop_norm_dists'].append(torch.mean(metric_dists(res_crop_norm, hq_crop_norm)).item())
-            #     bbox_metrics_norm['crop_norm_niqe'].append(torch.mean(metric_niqe(res_crop_norm, hq_crop_norm)).item())
-            #     bbox_metrics_norm['crop_norm_musiq'].append(torch.mean(metric_musiq(res_crop_norm, hq_crop_norm)).item())
-            #     bbox_metrics_norm['crop_norm_maniqa'].append(torch.mean(metric_maniqa(res_crop_norm, hq_crop_norm)).item())
-            #     bbox_metrics_norm['crop_norm_clipiqa'].append(torch.mean(metric_clipiqa(res_crop_norm, hq_crop_norm)).item())
-
-
-            # # Average metrics across all bounding boxes in this image
-            # for key, vals in bbox_metrics.items():
-            #     metrics[f'{val_data_name}_{key}'].append(np.mean(vals))
-            # for key, vals in bbox_metrics_norm.items():
-            #     metrics[f'{val_data_name}_{key}'].append(np.mean(vals))
-
-
-            
-
-
             # --------------------------------------------------
             #       restoration and OCR visualization 
             # --------------------------------------------------
