@@ -157,6 +157,7 @@ ckpt:
 
 train:
   stage: stage2
+  model_architecture: "dit4sr"
   model: ["testr"]
   lr: [1e-5]
   finetune: []

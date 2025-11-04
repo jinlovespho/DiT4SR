@@ -3,8 +3,10 @@ import os
 import cv2
 import math
 import glob
+import yaml
 import json
 import copy
+import shutil
 import logging
 import argparse
 import diffusers
@@ -25,7 +27,6 @@ import numpy as np
 import wandb
 
 import bitsandbytes as bnb
-from model_dit4sr.transformer_sd3 import SD3Transformer2DModel
 from diffusers.training_utils import cast_training_params
 from transformers import PretrainedConfig
 
@@ -88,6 +89,7 @@ def load_text_encoders(class_one, class_two, class_three, cfg):
     return text_encoder_one, text_encoder_two, text_encoder_three
 
 
+
 def load_experiment_setting(cfg, logger, exp_name):
     logging_dir = Path(cfg.save.output_dir, cfg.log.log_dir)
     accelerator_project_config = ProjectConfiguration(project_dir=cfg.save.output_dir, logging_dir=logging_dir)
@@ -119,6 +121,9 @@ def load_experiment_setting(cfg, logger, exp_name):
     if accelerator.is_main_process:
         if cfg.save.output_dir is not None:
             os.makedirs(f'{cfg.save.output_dir}/{exp_name}', exist_ok=True)
+            shutil.copyfile(cfg.cfg_path, f'{cfg.save.output_dir}/{exp_name}/config.yaml')
+
+            
     # `accelerate` 0.16.0 will have better support for customized saving
     if version.parse(accelerate.__version__) >= version.parse("0.16.0"):
         # create custom saving & loading hooks so that `accelerator.save_state(...)` serializes in a nice format
@@ -138,6 +143,7 @@ def load_experiment_setting(cfg, logger, exp_name):
                     #     torch.save(ckpt_dict, ckpt_path)
                     i -= 1
         def load_model_hook(models, input_dir):
+            breakpoint()
             while len(models) > 0:
                 # pop models so that they are not loaded again
                 model = models.pop()
@@ -167,7 +173,7 @@ def load_trackers(cfg, accelerator, exp_name):
             config=argparse.Namespace(**OmegaConf.to_container(cfg, resolve=True)),
             init_kwargs={
                     'wandb':{
-                        'name': f'TRAIN_serv{str(cfg.log.tracker.server)}gpu{str(cfg.log.tracker.gpu)}_{exp_name}',}
+                        'name': f'TRAIN__serv{str(cfg.log.tracker.server)}gpu{str(cfg.log.tracker.gpu)}__{exp_name}',}
                 }
         )
 
@@ -356,18 +362,40 @@ def load_model(cfg, accelerator):
         dit_ckpt_path = cfg.ckpt.resume_path.dit
     else: 
         dit_ckpt_path = cfg.ckpt.init_path.dit
-    transformer = SD3Transformer2DModel.from_pretrained_local(dit_ckpt_path, subfolder="transformer", revision=None, variant=None)
+    
+    if cfg.train.transformer.architecture == 'dit4sr':
+        from model_dit4sr.transformer_sd3 import SD3Transformer2DModel
+        transformer = SD3Transformer2DModel.from_pretrained_local(dit_ckpt_path, subfolder="transformer", revision=None, variant=None)
+        if accelerator.is_main_process:
+            print('-'*50)
+            print('     Using dit4sr architecture ')
+    
+            
+    elif cfg.train.transformer.architecture == 'dit4sr_ocrbranch_ocr2hq':
+        from model_dit4sr.transformer_sd3_ocrbranch_ocr2hq import SD3Transformer2DModel_OCRBranch_OCR2HQ
+        transformer = SD3Transformer2DModel_OCRBranch_OCR2HQ.from_pretrained_local(dit_ckpt_path, subfolder="transformer", revision=None, variant=None)
+        if accelerator.is_main_process:
+            print('-'*50)
+            print('     Using dit4sr_ocrbranch_OCR2HQ architecture')
+    
+    
+    elif cfg.train.transformer.architecture == 'dit4sr_ocrbranch_ocr2hq2ocr':
+        from model_dit4sr.transformer_sd3_ocrbranch_ocr2hq2ocr import SD3Transformer2DModel_OCRBranch_OCR2HQ2OCR
+        transformer = SD3Transformer2DModel_OCRBranch_OCR2HQ2OCR.from_pretrained_local(dit_ckpt_path, subfolder="transformer", revision=None, variant=None)
+        if accelerator.is_main_process:
+            print('-'*50)
+            print('     Using dit4sr_ocrbranch_OCR2HQ2OCR architecture')
+
+            
     transformer.requires_grad_(False)
     models['transformer'] = transformer
     if accelerator.is_main_process:
-        print("\n──────────────────────────────")
-        print(" DiT4SR Checkpoint Loaded")
-        print(f" Path: {dit_ckpt_path}")
-        print("──────────────────────────────\n")
-        
+        print(f"-- DiT4SR Checkpoint: {dit_ckpt_path} --")
+        print('-'*50)
+    
     
     # load ts module 
-    if 'testr' in cfg.train.model:
+    if 'ts_module' in cfg.train.model:
         from testr.adet.modeling.transformer_detector import TransformerDetector
         from testr.adet.config import get_cfg
         # get testr config
@@ -432,33 +460,68 @@ def load_model_params(cfg, accelerator, models):
     train_param_count=0
     frozen_param_count=0
     
-    # load image restoration module 
-    if 'dit4sr' in cfg.train.model:
-        for name, param in models['transformer'].named_parameters():
+    # # load image restoration module 
+    # if 'dit4sr' in cfg.train.model:
+    #     for name, param in models['transformer'].named_parameters():
+    #         numel = param.numel()
+    #         tot_param_count += numel
+    #         tot_param_names.append(name)
+
+    #         train_this_param = False
+    #         # train lr branch
+    #         if ('lrbranch' in cfg.train.finetune) and ('control' in name):
+    #             train_this_param = True 
+    #         # train all attention layers
+    #         if ('attns' in cfg.train.finetune) and ('attn' in name):
+    #             train_this_param = True 
+            
+    #         if train_this_param:
+    #             param.requires_grad = True
+    #             train_param_count += numel
+    #             train_param_names.append(name)
+    #         else:
+    #             param.requires_grad = False
+    #             frozen_param_count += numel
+    #             frozen_param_names.append(name)
+    
+    
+    
+    # set trainable params in transformer
+    if 'transformer' in cfg.train.model:
+        for layer_full_name, param in models['transformer'].named_parameters():
+
             numel = param.numel()
             tot_param_count += numel
-            tot_param_names.append(name)
+            tot_param_names.append(layer_full_name)
 
+            
+            # default is set to False
             train_this_param = False
-            # train lr branch
-            if ('lrbranch' in cfg.train.finetune) and ('control' in name):
-                train_this_param = True 
-            # train all attention layers
-            if ('attns' in cfg.train.finetune) and ('attn' in name):
-                train_this_param = True 
+            
+            
+            # loop through layers to find finetune layers
+            layers = layer_full_name.split('.')
+            ft_layer_names = cfg.train.transformer.finetune_layer_names
+            for layer in layers:
+                if layer in ft_layer_names:
+                    train_this_param = True 
+                    break
+            
             
             if train_this_param:
                 param.requires_grad = True
                 train_param_count += numel
-                train_param_names.append(name)
+                train_param_names.append(layer_full_name)
             else:
                 param.requires_grad = False
                 frozen_param_count += numel
-                frozen_param_names.append(name)
+                frozen_param_names.append(layer_full_name)
+    
+    
 
-
-    # load text spotting module 
-    if 'testr' in cfg.train.model:
+        
+    # set trainable params in text spotting module 
+    if 'ts_module' in cfg.train.model:
         for name, param in models['testr'].named_parameters():
             # Count total parameters
             numel = param.numel()
@@ -493,20 +556,14 @@ def load_optim(cfg, accelerator, models):
     # setup optimizer class
     optimizer_class = bnb.optim.AdamW8bit if cfg.train.use_8bit_adam else torch.optim.AdamW
     
-
-    model_lr={}
-    for model, lr in zip(cfg.train.model, cfg.train.lr):
-        model_lr[model] = lr 
-        
-    
     param_groups=[]
-    if ('dit4sr' in cfg.train.model) and ('dit4sr' in model_lr):
+    if 'transformer' in cfg.train.model:
         transformer_params = list(filter(lambda p: p.requires_grad, models['transformer'].parameters()))
-        param_groups.append({"params": transformer_params, "lr": model_lr['dit4sr']})
+        param_groups.append({"params": transformer_params, "lr": cfg.train.transformer.lr})
 
-    if ('testr' in cfg.train.model) and ('testr' in cfg.train.model):
+    if 'ts_module' in cfg.train.model:
         testr_params = list(filter(lambda p: p.requires_grad, models['testr'].parameters()))
-        param_groups.append({"params": testr_params, "lr": model_lr['testr']})
+        param_groups.append({"params": testr_params, "lr": cfg.train.ts_module.lr})
 
 
     # optimizer
@@ -517,7 +574,7 @@ def load_optim(cfg, accelerator, models):
         eps=1e-08,
     )
 
-    return optimizer, model_lr
+    return optimizer
 
 
 
@@ -544,7 +601,7 @@ def set_model_device(cfg, accelerator, models):
 
     # Ensure trainable params are in fp32 (LoRA or finetuning)
     if cfg.train.mixed_precision == "fp16":
-        if 'testr' in cfg.train.model:
+        if 'ts_module' in cfg.train.model:
             fp32_models = [models['transformer'], models['testr']]
         else:
             fp32_models = [models['transformer']]

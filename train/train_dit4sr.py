@@ -42,16 +42,19 @@ def main(cfg):
 
     
     # set experiment name
-    exp_name = f'{cfg.train.mixed_precision}__{cfg.train.stage}__{"-".join(cfg.train.model)}__{"-".join(f"{lr:.0e}" for lr in cfg.train.lr)}__bs-{str(cfg.train.batch_size)}__gradaccum-{cfg.train.gradient_accumulation_steps}__{"-".join(cfg.train.finetune)}__ocrloss{cfg.train.ocr_loss_weight}__{cfg.model.dit.text_condition.caption_style}__{cfg.log.tracker.msg}'
-    if cfg.train.repa.use_repa_tsm:
-        tsm_applied_layer = [str(l) for l in (cfg.train.repa.tsm_applied_layer)]
-        tsm_applied_layer = '-'.join(tsm_applied_layer)
-        exp_name = f'stable-repa-{tsm_applied_layer}__{exp_name}'
+    # exp_name = f'{cfg.train.mixed_precision}__{cfg.train.stage}__{"-".join(cfg.train.model)}__{"-".join(f"{lr:.0e}" for lr in cfg.train.lr)}__bs-{str(cfg.train.batch_size)}__gradaccum-{cfg.train.gradient_accumulation_steps}__{"-".join(cfg.train.finetune)}__ocrloss{cfg.train.ocr_loss_weight}__{cfg.model.dit.text_condition.caption_style}__{cfg.log.tracker.msg}'
+    exp_name = f'{cfg.train.mixed_precision}'
+    if 'transformer' in cfg.train.model:
+        exp_name = f'{exp_name}__{cfg.train.transformer.architecture}-{cfg.train.transformer.lr:.0e}'
+    if 'ts_module' in cfg.train.model:
+        exp_name = f'{exp_name}__{cfg.train.ts_module.architecture}-{cfg.train.ts_module.lr:.0e}__ocrloss{cfg.train.ocr_loss_weight}'
+    exp_name = f'{exp_name}__bs-{str(cfg.train.batch_size)}__gradaccum-{cfg.train.gradient_accumulation_steps}__{cfg.train.transformer.feat_extract}__{cfg.log.tracker.msg}'
     cfg.exp_name = exp_name
     print(f'-' * 50)
     print(f'Experiment name: {exp_name}')
     print(f'-' * 50)
-
+    
+    
     # set accelerator and basic settings (seed, logging, dir_path)
     accelerator = initialize.load_experiment_setting(cfg, logger, exp_name)
     
@@ -73,7 +76,7 @@ def main(cfg):
 
 
     # load optimizer 
-    optimizer, model_lr = initialize.load_optim(cfg, accelerator, models)
+    optimizer = initialize.load_optim(cfg, accelerator, models)
 
 
     # place models on cuda and proper weight dtype(float32, float16)
@@ -263,6 +266,7 @@ def main(cfg):
                     encoder_hidden_states=prompt_embeds,        # b 154 4096
                     pooled_projections=pooled_prompt_embeds,    # b 2048
                     return_dict=False,
+                    cfg=cfg
                 )
                 model_pred = trans_out[0]   # b 16 64 64
 
@@ -274,17 +278,18 @@ def main(cfg):
                     height = 64 // patch_size       # 32
                     width = 64 // patch_size        # 32
                     
+
                     # -- only hq feat -- 
                     # 1 2048 1536 -> only bring the hq tokens -> 1 1024 1536
                     # extracted_feats = [ rearrange(feat['extract_feat'], 'b (H W) (pH pW d) -> b d (H pH) (W pW)', H=height, W=width, pH=patch_size, pW=patch_size) for feat in etc_out ]    # b 384 64 64 
                     
                     # -- hq + lq feat --
                     # 1 2048 1536 -> bring both hq and lq tokens -> 1 2 1024 1536
-                    extracted_feats = [ rearrange(feat['extract_feat'], 'b (N H W) (pH pW d) -> b (N d) (H pH) (W pW)', N=2, H=height, W=width, pH=patch_size, pW=patch_size) for feat in etc_out ]    # b 384 64 64 
+                    extracted_feats = [ rearrange(feat['extract_feat'], 'b (N H W) (pH pW d) -> b (N d) (H pH) (W pW)', N=1, H=height, W=width, pH=patch_size, pW=patch_size) for feat in etc_out ]    # b 384 64 64 
                     
-                    if cfg.train.repa.use_repa_tsm:
-                        # REPA - extract features from specific layers
-                        extracted_feats = [feat for idx_feat, feat in enumerate(extracted_feats) if idx_feat in cfg.train.repa.tsm_applied_layer]
+                    # if cfg.train.repa.use_repa_tsm:
+                    #     # REPA - extract features from specific layers
+                    #     extracted_feats = [feat for idx_feat, feat in enumerate(extracted_feats) if idx_feat in cfg.train.repa.tsm_applied_layer]
                     
 
                       
@@ -325,7 +330,7 @@ def main(cfg):
                 diff_loss = diff_loss.mean()
 
                 # ts module loss 
-                if 'testr' in cfg.train.model:
+                if 'ts_module' in cfg.train.model:
                     # process annotations for OCR training loss
                     train_targets=[]
                     for i in range(bsz):
@@ -516,11 +521,11 @@ def main(cfg):
                         os.makedirs(save_path, exist_ok=True)
                         
                         # save transformer
-                        if 'dit4sr' in cfg.train.model:
+                        if 'transformer' in cfg.train.model:
                             accelerator.save_state(save_path)
                         
                         # save text spotting module 
-                        if 'testr' in cfg.train.model:
+                        if 'ts_module' in cfg.train.model:
                             # save ts_module
                             ts_ckpt = {}
                             ts_ckpt['ts_module'] = models['testr'].state_dict()
@@ -532,7 +537,7 @@ def main(cfg):
 
                     if len(cfg.data.val.eval_list) != 0 and (global_step==1 or global_step % cfg.val.val_every_step == 0):
 
-                        if 'testr' in cfg.train.model:
+                        if 'ts_module' in cfg.train.model:
                             ts_module = models['testr'] 
                         else:
                             ts_module = None 
@@ -701,7 +706,7 @@ def main(cfg):
                                             
                                             
                                 # vis ocr result
-                                if ('testr' in cfg.train.model) and (cfg.data.val.ocr.vis_ocr):
+                                if ('ts_module' in cfg.train.model) and (cfg.data.val.ocr.vis_ocr):
                                     
                                     # prepare ocr visualization
                                     val_ocr_save_path = f'{cfg.save.output_dir}/{exp_name}/{val_data_name}/final_ocr_result'
@@ -770,9 +775,9 @@ def main(cfg):
                     }
             
             # ocr log
-            if 'testr' in cfg.train.model:
+            if 'ts_module' in cfg.train.model:
                 logs["loss/ocr_tot_loss"] = ocr_tot_loss.detach().item()
-                logs['optim/ts_module_lr'] = model_lr['testr']
+                logs['optim/ts_module_lr'] = cfg.train.ts_module.lr
                 for ocr_key, ocr_val in ocr_loss_dict.items():
                     logs[f"loss/ocr_{ocr_key}"] = ocr_val.detach().item()
 
@@ -793,6 +798,7 @@ if __name__ == "__main__":
     parser.add_argument("--config", type=str, required=True)
     args = parser.parse_args()
     cfg = OmegaConf.load(args.config)
+    cfg.cfg_path = args.config
     if cfg.model.dit.resolution % 8 != 0:
         raise ValueError(
             "`--resolution` must be divisible by 8 for consistently sized encoded images between the VAE and the controlnet encoder."

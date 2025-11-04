@@ -131,6 +131,7 @@ ckpt:
 
 train:
   stage: stage1
+  model_architecture: "dit4sr"
   model: ["dit4sr"]
   lr: [1e-4]
   finetune: [lrbranch, attns]

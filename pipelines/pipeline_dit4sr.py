@@ -1083,7 +1083,7 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
                 if h*w<=tile_size*tile_size: # tiled latent input
 
                     # TEXTUAL PROMPT GUIDANCE (TSM)
-                    if (i>0) and (cfg.data.val.text_cond_prompt == 'pred_tsm') and ('testr' in cfg.train.model):
+                    if (i>0) and (cfg.data.val.text_cond_prompt == 'pred_tsm') and ('ts_module' in cfg.train.model):
                         prompt_embeds_input = prompt_embeds_tsm     # prompt guidance after one timestep
                     else:
                         prompt_embeds_input = prompt_embeds
@@ -1098,7 +1098,7 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
                         pooled_prompt_embeds_input = torch.cat([negative_pooled_prompt_embeds, pooled_prompt_embeds], dim=0)    # (2, 2048)
                     else:
                         # # TEXTUAL PROMPT GUIDANCE (TSM)
-                        if (i>0) and (cfg.data.val.text_cond_prompt == 'pred_tsm') and ('testr' in cfg.train.model):
+                        if (i>0) and (cfg.data.val.text_cond_prompt == 'pred_tsm') and ('ts_module' in cfg.train.model):
                             pooled_prompt_embeds_input = pooled_prompt_embeds_tsm
                         else:
                             pooled_prompt_embeds_input = pooled_prompt_embeds
@@ -1113,6 +1113,7 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
                         pooled_projections=pooled_prompt_embeds_input,          # b 2048
                         joint_attention_kwargs=self.joint_attention_kwargs,
                         return_dict=False,
+                        cfg=cfg
                     )
                     noise_pred = trans_out[0]
                     
@@ -1196,7 +1197,7 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
                     
     
                     # ts module forward pass 
-                    if 'testr' in cfg.train.model:
+                    if 'ts_module' in cfg.train.model:
                         if len(trans_out) > 1:
                             etc_out = trans_out[1]
                             # unpatchify
@@ -1212,11 +1213,11 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
                             
                             # -- hq + lq feat --
                             # 1 2048 1536 -> bring both hq and lq tokens -> 1 2 1024 1536
-                            extracted_feats = [ rearrange(feat['extract_feat'], 'b (N H W) (pH pW d) -> b (N d) (H pH) (W pW)', N=2, H=height, W=width, pH=patch_size, pW=patch_size) for feat in etc_out ]    # b 384 64 64 
+                            extracted_feats = [ rearrange(feat['extract_feat'], 'b (N H W) (pH pW d) -> b (N d) (H pH) (W pW)', N=1, H=height, W=width, pH=patch_size, pW=patch_size) for feat in etc_out ]    # b 384 64 64 
                             
-                            if cfg.train.repa.use_repa_tsm:
-                                # REPA - extract features from specific layers
-                                extracted_feats = [feat for idx_feat, feat in enumerate(extracted_feats) if idx_feat in cfg.train.repa.tsm_applied_layer]
+                            # if cfg.train.repa.use_repa_tsm:
+                            #     # REPA - extract features from specific layers
+                            #     extracted_feats = [feat for idx_feat, feat in enumerate(extracted_feats) if idx_feat in cfg.train.repa.tsm_applied_layer]
                     
                             
                             
@@ -1465,7 +1466,7 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
 
 
         if not return_dict:  # t
-            if 'testr' in cfg.train.model:
+            if 'ts_module' in cfg.train.model:
                 return (image, val_ocr_result)
             else:
                 return (image,)
