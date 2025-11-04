@@ -14,8 +14,8 @@ data:
     null_text_ratio: 0.1
 
   val:
-    eval_list: []
-    # eval_list: [realtext, satext_lv2]
+    # eval_list: []
+    eval_list: [realtext, satext_lv2]
     # eval_list: [realtext, satext_lv3, satext_lv2, satext_lv1]
 
     realtext:
@@ -26,7 +26,6 @@ data:
       vlm_input_ques: 
       vlm_caption_path: 
       val_num_img: 847
-      # val_img_id: []
       val_img_id: [Canon_001_HR_crop_1, Canon_21_x4_5_crop_0, Canon_24_x4_21_crop_0, Canon_30_x4_44_crop_0, Canon_31_x4_52_crop_0, Canon_32_x4_21_crop_0, Canon_32_x4_23_crop_0, Canon_33_x4_33_crop_0, Canon_37_x4_45_crop_0, Canon_41_x4_32_crop_0, Canon_41_x4_35_crop_0, DSC_0972_x4_13_crop_0, DSC_0984_x4_2_crop_0, DSC_0984_x4_6_crop_0, DSC_1023_x4_16_crop_0, DSC_1330_x4_4_crop_0, DSC_1342_x4_6_crop_0,  ]
 
 
@@ -75,9 +74,7 @@ data:
       vis_map: False
 
 
-    # choose from ['crop', 'full']
     eval_region: all
-
 
 
     added_prompt: Cinematic, hyper sharpness, highly detailed, perfect without deformations, camera, hyper detailed photo - realistic maximum detail, 32k, Color Grading, ultra HD, extreme meticulous detailing, skin pore detailing.
@@ -139,7 +136,7 @@ ckpt:
 train:
   stage: stage3
   model: ["dit4sr", "testr"]
-  lr: [5e-6, 1e-4]
+  lr: [1e-5, 1e-4]
   finetune: [lrbranch, attns]
   mixed_precision: 'fp16'
 
@@ -147,7 +144,7 @@ train:
   # ----------------------------------
   #      STAGE3 - MODIFY HERE ! 
   # ----------------------------------
-  num_train_epochs: 10  # 60k
+  num_train_epochs: 5  # 30k
   batch_size: 1         
   num_workers: 4
   gradient_accumulation_steps: 8
@@ -162,33 +159,37 @@ train:
   set_grads_to_none: False
   scale_lr: False
   use_8bit_adam: False
-  ocr_loss_weight: 0.01
+  ocr_loss_weight: 1.0
   
 
 val:
-  # val_every_step: 100
-  val_every_step: 500
+  val_every_step: 1000
 
 
 save:
   # output_dir: ./result_train/continue_stage3
   # output_dir: ./result_train/text_aware_feature_comparison_stage1
   # output_dir: ./result_train/text_aware_feature_comparison_dit4sr_q
-  output_dir: ./result_train/TMPTMP
   
-  # checkpointing_steps: 1000
-  checkpointing_steps: 500
+  output_dir: ./result_train/stage3_dit4sr_detach_testr
+  
+  checkpointing_steps: 1000
 
 
 log:
   tracker: 
-    report_to: wandb 
+    report_to: wandb
     key: e32eed0c2509bf898b850b0065ab62345005fb73
     # project_name: cvpr26_tair_extension
     project_name: cvpr26_tair2_train
     server: 20
-    gpu: 1
+    gpu: 6
     # msg: ditfeat24_hidden_after
     # msg: ditfeat24_hidden_after_awarefeatcomparison_stage1
-    msg: ditfeat24_hidden_after_awarefeatcomparison_dit4sr_q
+    # msg: ditfeat24_hidden_after_awarefeatcomparison_dit4sr_q
+
+    # msg: ditfeat24_hidden_after_detach
+    
+    msg: ditfeat24_lqfeat24_hidden_after_detach
+
   log_dir: logs

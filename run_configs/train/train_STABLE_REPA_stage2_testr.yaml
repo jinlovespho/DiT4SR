@@ -80,7 +80,8 @@ data:
 
 
 
-    added_prompt: Cinematic, hyper sharpness, highly detailed, perfect without deformations, camera, hyper detailed photo - realistic maximum detail, 32k, Color Grading, ultra HD, extreme meticulous detailing, skin pore detailing.
+    # added_prompt: Cinematic, hyper sharpness, highly detailed, perfect without deformations, camera, hyper detailed photo - realistic maximum detail, 32k, Color Grading, ultra HD, extreme meticulous detailing, skin pore detailing.
+    added_prompt: 
     negative_prompt: motion blur, noisy, dotted, bokeh, pointed, CG Style, 3D render, unreal engine, blurring, dirty, messy, worst quality, low quality, frames, watermark, signature, jpeg artifacts, deformed, lowres, chaotic
     save_prompts: True
     sample_times: 1
@@ -150,24 +151,37 @@ ckpt:
     # -------------------------------------
     #     JIHYE_CKPT_stage1
     # -------------------------------------
-    dit: result_train/JIHYE_CKPT/stage1/checkpoint-32000
+    dit: 
+    # dit: result_train/JIHYE_CKPT/stage1/checkpoint-32000
 
 
 train:
   stage: stage2
   model: ["testr"]
-  lr: [1e-4]
+  lr: [1e-5]
   finetune: []
   mixed_precision: 'fp16'
+
+
+
+  repa:
+    use_repa_tsm: True 
+    tsm_applied_layer: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
+    # tsm_applied_layer: [0, 1, 2, 3, 4, 5, 6, 7]
+    # tsm_applied_layer: [16, 17, 18, 19, 20, 21, 22, 23]  
+
+    
 
 
   # ----------------------------------
   #      STAGE2 - MODIFY HERE ! 
   # ----------------------------------
   num_train_epochs: 5  # 30k
-  batch_size: 2
+  batch_size: 1
   num_workers: 4
-  gradient_accumulation_steps: 8
+  # gradient_accumulation_steps: 1
+  # gradient_accumulation_steps: 32
+  gradient_accumulation_steps: 64
   
   
   max_train_steps: 
@@ -179,12 +193,13 @@ train:
   set_grads_to_none: False
   scale_lr: False
   use_8bit_adam: False
-  ocr_loss_weight: 1.0
-  # ocr_loss_weight: 0.01
+  # ocr_loss_weight: 1.0
+  ocr_loss_weight: 0.01
+  # ocr_loss_weight: 0.02
   
 
 val:
-  val_every_step: 1000
+  val_every_step: 500
 
 
 save:
@@ -205,7 +220,9 @@ save:
   # output_dir: ./result_train/text_aware_feature_comparison_stage1
   # output_dir: ./result_train/text_aware_feature_comparison_stage1_continue7k
   
-  output_dir: ./result_train/stage2_dit4sr_detach_testr
+  # output_dir: ./result_train/stage2_dit4sr_detach_testr
+
+  output_dir: ./result_train/stage2_251102_STABLE_REPA_dit4sr_testr
 
   checkpointing_steps: 1000
 
@@ -218,28 +235,10 @@ log:
     project_name: cvpr26_tair2_train
     server: 20
     gpu: 1
-    # msg: ditfeat24_hidden_after
 
-
-    # -------------------------------
-    #   resume stage2 w/ dit4sr_q
-    # -------------------------------
-    
-    # msg: ditfeat24_hidden_after_awarefeatcomparison_dit4sr_q
-    # msg: ditfeat24_hidden_after_awarefeatcomparison_dit4sr_q_continue7k
-    
-
-
-    # -------------------------------------
-    #   resume stage2 w/ dit4sr_stage1
-    # -------------------------------------
-
-    # msg: ditfeat24_hidden_after_awarefeatcomparison_dit4sr_stage1
-    # msg: ditfeat24_hidden_after_awarefeatcomparison_dit4sr_stage1_continue7k
-
-
-    # msg: ditfeat24_lqfeat24_hidden_after_detach_ir-dit4srq
-    msg: ditfeat24_lqfeat24_hidden_after_detach_ir-dit4srJIHYEs1
+    # 25.11.01 - stage2_STABLE_REPA
+    msg: feat-hq-lq__hidden-after__ir-dit4sr-q
+    # msg: feat-hq-lq__hidden-after__ir-dit4sr-jihye-s1
 
 
   log_dir: logs

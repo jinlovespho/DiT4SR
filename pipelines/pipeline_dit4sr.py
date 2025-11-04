@@ -1204,7 +1204,22 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
                             hidden_dim = self.transformer.config.num_attention_heads * self.transformer.config.attention_head_dim     # 1536
                             height = 64 // patch_size       # 32
                             width = 64 // patch_size        # 32
-                            extracted_feats = [rearrange(feat['extract_feat'], 'b (H W) (pH pW d) -> b d (H pH) (W pW)', H=height, W=width, pH=patch_size, pW=patch_size) for feat in etc_out ]    # b 384 64 64 
+                            
+                            
+                            # -- only hq feat -- 
+                            # 1 2048 1536 -> only bring the hq tokens -> 1 1024 1536
+                            # extracted_feats = [ rearrange(feat['extract_feat'], 'b (H W) (pH pW d) -> b d (H pH) (W pW)', H=height, W=width, pH=patch_size, pW=patch_size) for feat in etc_out ]    # b 384 64 64 
+                            
+                            # -- hq + lq feat --
+                            # 1 2048 1536 -> bring both hq and lq tokens -> 1 2 1024 1536
+                            extracted_feats = [ rearrange(feat['extract_feat'], 'b (N H W) (pH pW d) -> b (N d) (H pH) (W pW)', N=2, H=height, W=width, pH=patch_size, pW=patch_size) for feat in etc_out ]    # b 384 64 64 
+                            
+                            if cfg.train.repa.use_repa_tsm:
+                                # REPA - extract features from specific layers
+                                extracted_feats = [feat for idx_feat, feat in enumerate(extracted_feats) if idx_feat in cfg.train.repa.tsm_applied_layer]
+                    
+                            
+                            
                             extracted_feats = [f.to(torch.float32) for f in extracted_feats]
                             with torch.cuda.amp.autocast(enabled=False):
                                 with torch.no_grad():

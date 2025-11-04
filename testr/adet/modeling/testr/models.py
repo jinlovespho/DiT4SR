@@ -24,6 +24,26 @@ class MLP(nn.Module):
             x = F.relu(layer(x)) if i < self.num_layers - 1 else layer(x)
         return x
 
+
+class FeatFusionBlock(nn.Module):
+    def __init__(self, in_ch=4608, d_model=1024):
+        super().__init__()
+        self.proj = nn.Sequential(
+            nn.Conv2d(in_ch, 1024, 1),
+            nn.GroupNorm(32, 1024),
+            nn.GELU(),
+            nn.Conv2d(1024, d_model, 1),
+            nn.GELU(),
+            nn.Conv2d(d_model, d_model, 3, padding=1),
+            nn.GroupNorm(32, d_model),
+            nn.GELU(),
+        )
+        self.shortcut = nn.Conv2d(in_ch, d_model, 1)  # residual
+
+    def forward(self, x):
+        return self.proj(x) + self.shortcut(x)
+    
+    
 class TESTR(nn.Module):
     """
     Same as :class:`detectron2.modeling.ProposalNetwork`.
@@ -118,22 +138,65 @@ class TESTR(nn.Module):
         #     for i in range(len(num_channels))
         # ])
         
-        # num_feat 24
-        num_channels = [2304, 2304, 2304, 2304]
+        # # num_feat 24
+        # num_channels = [2304, 2304, 2304, 2304]
+        # self.diff_feat_proj = nn.ModuleList([
+        #     nn.Sequential(
+        #         nn.Conv2d(2304, 1024, kernel_size=1),
+        #         nn.GroupNorm(32, 1024),
+        #         nn.GELU(),
+        #         nn.Conv2d(1024, self.d_model, kernel_size=1),
+        #         nn.GroupNorm(32, self.d_model),
+        #         nn.GELU(),
+        #         nn.Conv2d(self.d_model, self.d_model, kernel_size=3, padding=1),
+        #         nn.GroupNorm(32, self.d_model),
+        #         nn.GELU(),
+        #     )
+        #     for i in range(len(num_channels))
+        # ])
+        
+        # for proj in self.diff_feat_proj:
+        #     nn.init.xavier_uniform_(proj[0].weight, gain=1)
+        #     nn.init.constant_(proj[0].bias, 0)
+
+
+
+
+
+
+
+
+
+        
+        # 1. hqfeat24 + lqfeat24 
         self.diff_feat_proj = nn.ModuleList([
-            nn.Sequential(
-                nn.Conv2d(2304, 1024, kernel_size=1),
-                nn.GroupNorm(32, 1024),
-                nn.GELU(),
-                nn.Conv2d(1024, self.d_model, kernel_size=1),
-                nn.GroupNorm(32, self.d_model),
-                nn.GELU(),
-                nn.Conv2d(self.d_model, self.d_model, kernel_size=3, padding=1),
-                nn.GroupNorm(32, self.d_model),
-                nn.GELU(),
-            )
-            for i in range(len(num_channels))
+            # one feature is -> 2384 
+            # we bring hq and lq -> 2
+            # out of 24 layers we need to input 4, so 24/4 = 6
+            FeatFusionBlock(in_ch=384*2*6, d_model=self.d_model)  # one block per feature level
+            for _ in range(4)
         ])
+        
+        
+        
+        
+        
+        # # 2. repa - hqfeat8 + lqfeat8 
+        # self.diff_feat_proj = nn.ModuleList([
+        #     FeatFusionBlock(in_ch=384*2*2, d_model=self.d_model)  # one block per feature level
+        #     for _ in range(4)
+        # ])
+        
+        
+        
+        
+        
+        
+        for proj in self.diff_feat_proj:
+            nn.init.xavier_uniform_(proj.proj[0].weight, gain=1)
+            nn.init.constant_(proj.proj[0].bias, 0)
+
+
 
         self.aux_loss = cfg.MODEL.TRANSFORMER.AUX_LOSS
 
@@ -143,9 +206,6 @@ class TESTR(nn.Module):
         self.bbox_class.bias.data = torch.ones(self.num_classes) * bias_value
         nn.init.constant_(self.ctrl_point_coord.layers[-1].weight.data, 0)
         nn.init.constant_(self.ctrl_point_coord.layers[-1].bias.data, 0)
-        for proj in self.diff_feat_proj:
-            nn.init.xavier_uniform_(proj[0].weight, gain=1)
-            nn.init.constant_(proj[0].bias, 0)
 
         num_pred = self.num_decoder_layers
         self.ctrl_point_class = nn.ModuleList(
@@ -173,13 +233,29 @@ class TESTR(nn.Module):
         num_feats = len(extracted_feats)
         num_idx_range = num_feats//4
         
+        
+        # for l in range(4):
+        #     start_idx = num_idx_range*l
+        #     end_idx = num_idx_range*(l+1)
+        #     breakpoint()
+        #     feats = torch.concat(extracted_feats[start_idx:end_idx], dim=1)
+        #     b, _, feat_H, feat_W = feats.shape
+        #     srcs.append(self.diff_feat_proj[l](feats))
+        #     masks.append(torch.zeros(b, feat_H, feat_W).to(bool).to(feats.device))
+
+
         for l in range(4):
-            start_idx = num_idx_range*l
-            end_idx = num_idx_range*(l+1)
+            start_idx = num_idx_range * l
+            end_idx = num_idx_range * (l + 1)
+
             feats = torch.concat(extracted_feats[start_idx:end_idx], dim=1)
             b, _, feat_H, feat_W = feats.shape
-            srcs.append(self.diff_feat_proj[l](feats))
-            masks.append(torch.zeros(b, feat_H, feat_W).to(bool).to(feats.device))
+
+            # Use FeatFusionBlock
+            fused_feats = self.diff_feat_proj[l](feats)
+            srcs.append(fused_feats)
+
+            masks.append(torch.zeros(b, feat_H, feat_W, dtype=torch.bool, device=feats.device))
 
 
         ctrl_point_embed = self.ctrl_point_embed.weight[None, ...].repeat(self.num_proposals, 1, 1)                     

@@ -157,6 +157,11 @@ class FeedForwardControl(nn.Module):
         if len(args) > 0 or kwargs.get("scale", None) is not None:  # f
             deprecation_message = "The `scale` argument is deprecated and will be ignored. Please remove it, as passing it will raise an error in the future. `scale` should directly be passed while calling the underlying pipeline component i.e., via `cross_attention_kwargs`."
             deprecate("scale", "1.0.0", deprecation_message)
+        '''
+            self.net[0] = GELU
+            self.net[1] = Dropout
+            self.net[2] = Linear(6144, 1536)
+        '''
         for i, module in enumerate(self.net):
             hidden_states = module(hidden_states)   
             if i == 1:
@@ -346,9 +351,14 @@ class JointTransformerBlock(nn.Module):
 
         # # AFTER HIDDEN
         if extract_feat:
-            # extract lq added hq feature
-            trans_blk_out['extract_feat'] = hidden_states[:,:n//2]
+            # -- using only hq feature --
+            # trans_blk_out['extract_feat'] = hidden_states[:,:n//2]
             # trans_blk_out['extract_feat'] = hidden_states[:,:n//2].detach()
+            
+            
+            # -- using concat[hq, lq] feature --
+            # trans_blk_out['extract_feat'] = hidden_states.detach()
+            trans_blk_out['extract_feat'] = hidden_states
             
 
 

@@ -42,9 +42,15 @@ def main(cfg):
 
     
     # set experiment name
-    exp_name = f'{cfg.train.mixed_precision}_{cfg.train.stage}_{"-".join(cfg.train.model)}_{"-".join(f"{lr:.0e}" for lr in cfg.train.lr)}_{"-".join(cfg.train.finetune)}_ocrloss{cfg.train.ocr_loss_weight}_{cfg.model.dit.text_condition.caption_style}_{cfg.log.tracker.msg}'
+    exp_name = f'{cfg.train.mixed_precision}__{cfg.train.stage}__{"-".join(cfg.train.model)}__{"-".join(f"{lr:.0e}" for lr in cfg.train.lr)}__bs-{str(cfg.train.batch_size)}__gradaccum-{cfg.train.gradient_accumulation_steps}__{"-".join(cfg.train.finetune)}__ocrloss{cfg.train.ocr_loss_weight}__{cfg.model.dit.text_condition.caption_style}__{cfg.log.tracker.msg}'
+    if cfg.train.repa.use_repa_tsm:
+        tsm_applied_layer = [str(l) for l in (cfg.train.repa.tsm_applied_layer)]
+        tsm_applied_layer = '-'.join(tsm_applied_layer)
+        exp_name = f'stable-repa-{tsm_applied_layer}__{exp_name}'
     cfg.exp_name = exp_name
-
+    print(f'-' * 50)
+    print(f'Experiment name: {exp_name}')
+    print(f'-' * 50)
 
     # set accelerator and basic settings (seed, logging, dir_path)
     accelerator = initialize.load_experiment_setting(cfg, logger, exp_name)
@@ -248,16 +254,16 @@ def main(cfg):
                 # zt = (1 - texp) * x + texp * z1
                 sigmas = get_sigmas(timesteps, accelerator, models['noise_scheduler_copy'], n_dim=model_input.ndim, dtype=model_input.dtype)    # b 1 1 1
                 noisy_model_input = (1.0 - sigmas) * model_input + sigmas * noise   # b 16 64 64 
-                with torch.cuda.amp.autocast(enabled=False):
-                    # Predict the noise residual
-                    trans_out = transformer(                       
-                        hidden_states=noisy_model_input,            # b 16 64 64 
-                        controlnet_image=controlnet_image,          # b 16 16 16  
-                        timestep=timesteps,                         # b
-                        encoder_hidden_states=prompt_embeds,        # b 154 4096
-                        pooled_projections=pooled_prompt_embeds,    # b 2048
-                        return_dict=False,
-                    )
+                # with torch.cuda.amp.autocast(enabled=False):
+                # Predict the noise residual
+                trans_out = transformer(                       
+                    hidden_states=noisy_model_input,            # b 16 64 64 
+                    controlnet_image=controlnet_image,          # b 16 16 16  
+                    timestep=timesteps,                         # b
+                    encoder_hidden_states=prompt_embeds,        # b 154 4096
+                    pooled_projections=pooled_prompt_embeds,    # b 2048
+                    return_dict=False,
+                )
                 model_pred = trans_out[0]   # b 16 64 64
 
                 if len(trans_out) > 1:
@@ -267,7 +273,21 @@ def main(cfg):
                     hidden_dim = models['transformer'].config.num_attention_heads * models['transformer'].config.attention_head_dim     # 1536
                     height = 64 // patch_size       # 32
                     width = 64 // patch_size        # 32
-                    extracted_feats = [ rearrange(feat['extract_feat'], 'b (H W) (pH pW d) -> b d (H pH) (W pW)', H=height, W=width, pH=patch_size, pW=patch_size) for feat in etc_out ]    # b 384 64 64 
+                    
+                    # -- only hq feat -- 
+                    # 1 2048 1536 -> only bring the hq tokens -> 1 1024 1536
+                    # extracted_feats = [ rearrange(feat['extract_feat'], 'b (H W) (pH pW d) -> b d (H pH) (W pW)', H=height, W=width, pH=patch_size, pW=patch_size) for feat in etc_out ]    # b 384 64 64 
+                    
+                    # -- hq + lq feat --
+                    # 1 2048 1536 -> bring both hq and lq tokens -> 1 2 1024 1536
+                    extracted_feats = [ rearrange(feat['extract_feat'], 'b (N H W) (pH pW d) -> b (N d) (H pH) (W pW)', N=2, H=height, W=width, pH=patch_size, pW=patch_size) for feat in etc_out ]    # b 384 64 64 
+                    
+                    if cfg.train.repa.use_repa_tsm:
+                        # REPA - extract features from specific layers
+                        extracted_feats = [feat for idx_feat, feat in enumerate(extracted_feats) if idx_feat in cfg.train.repa.tsm_applied_layer]
+                    
+
+                      
 
                 '''
                 (Pdb) extracted_feats[0].shape  torch.Size([2, 1280, 16, 16])
@@ -316,9 +336,11 @@ def main(cfg):
                         tmp_dict['texts'] = text_encs[i]
                         tmp_dict['ctrl_points'] = polys[i]
                         train_targets.append(tmp_dict)
+
                     with torch.cuda.amp.autocast(enabled=False):
                         # OCR model forward pass
                         ocr_loss_dict, ocr_result = models['testr'](extracted_feats, train_targets, MODE='TRAIN')
+                    
                     # OCR total_loss
                     ocr_tot_loss = sum(v for v in ocr_loss_dict.values())
                     # OCR losses
@@ -332,24 +354,151 @@ def main(cfg):
                     total_loss = diff_loss
                     ocr_tot_loss=torch.tensor(0).cuda()
                     
-
-                if global_step > 0:
-                    # backpropagate
-                    accelerator.backward(total_loss)
                     
-                    if accelerator.sync_gradients:
-                        params_to_clip = list(transformer.parameters())
-                        if 'testr' in models and getattr(models['testr'], 'training', False):
-                            params_to_clip += list(models['testr'].parameters())
-                        accelerator.clip_grad_norm_(params_to_clip, cfg.train.max_grad_norm)
 
-                    # if accelerator.sync_gradients:
-                    #     # params_to_clip = controlnet.parameters()
-                    #     params_to_clip = transformer.parameters()
-                    #     accelerator.clip_grad_norm_(params_to_clip, cfg.train.max_grad_norm)
+                # Inside your training loop, after backprop and gradient clipping
+                if global_step > 0:
+
+                    # -----------------------------
+                    # Backprop
+                    # -----------------------------
+                    accelerator.backward(total_loss)
+
+                    # -----------------------------
+                    # Clip gradients
+                    # -----------------------------
+                    if accelerator.sync_gradients:
+                        accelerator.clip_grad_norm_(list(transformer.parameters()), cfg.train.max_grad_norm)
+
+                        if 'testr' in models and getattr(models['testr'], 'training', False):
+                            torch.nn.utils.clip_grad_norm_(models['testr'].parameters(),
+                                                        max_norm=cfg.train.max_grad_norm)
+
+                    # -----------------------------
+                    # Helper: get max grad
+                    # -----------------------------
+                    def get_max_grad(model):
+                        max_grad = 0.0
+                        for param in model.parameters():
+                            if param.grad is not None:
+                                max_grad = max(max_grad, param.grad.abs().max().item())
+                        return max_grad
+
+                    transformer_max_grad = get_max_grad(transformer)
+                    testr_max_grad = get_max_grad(models['testr']) if 'testr' in models else 0.0
+
+                    # -----------------------------
+                    # Helper: get TOP-K grads as text
+                    # -----------------------------
+                    def get_topk_gradients(model, top_k=20):
+                        grad_dict = {}
+                        for name, param in model.named_parameters():
+                            if param.grad is not None:
+                                grad_dict[name] = param.grad.abs().max().item()
+                        sorted_grads = sorted(grad_dict.items(), key=lambda x: x[1], reverse=True)[:top_k]
+
+                        txt = ""
+                        for name, g in sorted_grads:
+                            txt += f"{name:<60} {g:>10.6f}\n"
+                        return txt
+
+                    # # -----------------------------
+                    # # Optional: print top-K grads
+                    # # -----------------------------
+                    # def print_top_grads_single(model, model_name, top_k=20):
+                    #     grad_dict = {}
+                    #     for name, param in model.named_parameters():
+                    #         if param.grad is not None:
+                    #             grad_dict[name] = param.grad.abs().max().item()
+                    #     sorted_grads = sorted(grad_dict.items(), key=lambda x: x[1], reverse=True)[:top_k]
+
+                    #     print(f"\nTop {top_k} parameters with largest gradients for {model_name}:")
+                    #     print(f"{'Parameter':<60} {'Max Grad':>10}")
+                    #     print("-"*72)
+                    #     for name, g in sorted_grads:
+                    #         print(f"{name:<60} {g:>10.6f}")
+                    #     print("-"*72 + "\n")
+
+                    # print_top_grads_single(transformer, "transformer", top_k=20)
+
+                    # if 'testr' in models and getattr(models['testr'], 'training', False):
+                    #     print_top_grads_single(models['testr'], "testr", top_k=20)
+
+                    # -----------------------------
+                    # WandB Logging
+                    # -----------------------------
+                    if accelerator.is_main_process and cfg.log.tracker.report_to == 'wandb':
+                        wandb.log({
+                            "gradients/transformer_max": transformer_max_grad,
+                            "gradients/testr_max": testr_max_grad,
+                            "loss/diff_loss": diff_loss.item(),
+                            "loss/ocr_tot_loss": ocr_tot_loss.item(),
+                            "loss/total_loss": total_loss.item(),
+                        }, step=global_step)
+
+                    # -----------------------------
+                    # TXT Logging (main process)
+                    # -----------------------------
+                    if accelerator.is_main_process and global_step % cfg.val.val_every_step == 0:
+
+                        save_norm_monitor_path = f"{cfg.save.output_dir}/{exp_name}/monitor_grad_norm"
+                        os.makedirs(save_norm_monitor_path, exist_ok=True)
+
+                        # Get top-K gradients as text
+                        transformer_topk_txt = get_topk_gradients(transformer, top_k=20)
+
+                        if 'testr' in models and getattr(models['testr'], 'training', False):
+                            testr_topk_txt = get_topk_gradients(models['testr'], top_k=20)
+                        else:
+                            testr_topk_txt = "(testr missing or not training)\n"
+
+                        # Build log string
+                        log_str = (
+                            f"[Step {global_step}]\n"
+                            f"transformer_max_grad = {transformer_max_grad:.6f}\n"
+                            f"testr_max_grad       = {testr_max_grad:.6f}\n"
+                            f"diff_loss            = {diff_loss.item():.6f}\n"
+                            f"ocr_tot_loss         = {ocr_tot_loss.item():.6f}\n"
+                            f"total_loss           = {total_loss.item():.6f}\n"
+                            f"{'-'*60}\n"
+                            f"Top 20 Transformer Gradients:\n"
+                            f"{transformer_topk_txt}"
+                            f"{'-'*60}\n"
+                            f"Top 20 Testr Gradients:\n"
+                            f"{testr_topk_txt}"
+                            f"{'='*80}\n\n"
+                        )
+
+                        with open(f"{save_norm_monitor_path}/grad_norm_step{global_step:09d}.txt", "a") as f:
+                            f.write(log_str)
+
+                    # -----------------------------
+                    # Optimizer step
+                    # -----------------------------
                     optimizer.step()
                     lr_scheduler.step()
                     optimizer.zero_grad(set_to_none=cfg.train.set_grads_to_none)
+
+
+
+                    
+            
+                '''
+                    transformer:
+                    
+                        1. training_layers (requires_grad=True):
+                            - transformer.transformer_blocks[0].attn.to_q.weight
+                    
+                        
+                        2. frozen_layers (requires_grad=False):
+                            - transformer.transformer_blocks[0].ff.net[0].proj.weight
+                    
+                    ts_module:
+                    
+                        models['testr'].testr.transformer.encoder.layers[0].self_attn.output_proj.weight
+                    
+                    
+                '''
 
 
             # Checks if the accelerator has performed an optimization step behind the scenes

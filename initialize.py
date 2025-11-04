@@ -521,38 +521,6 @@ def load_optim(cfg, accelerator, models):
 
 
 
-
-# def set_model_device(cfg, accelerator, models):
-
-#     # For mixed precision training we cast the text_encoder and vae weights to half-precision
-#     # as these models are only used for inference, keeping weights in full precision is not required.
-#     weight_dtype = torch.float32
-#     if accelerator.mixed_precision == "fp16":
-#         weight_dtype = torch.float16
-#     elif accelerator.mixed_precision == "bf16":
-#         weight_dtype = torch.bfloat16
-
-#     # place models on cuda 
-#     for name, model in models.items():
-#         if isinstance(model, torch.nn.Module):
-#             model = model.to(accelerator.device, dtype=weight_dtype)
-#         elif isinstance(model, list):
-#             if name == 'text_encoders':
-#                 for mod in model:
-#                     mod = mod.to(accelerator.device, dtype=torch.float16)
-#         else:
-#             # leave schedulers, tokenizers, etc. as they are
-#             pass
-
-#     # Make sure the trainable params are in float32.
-#     if cfg.train.mixed_precision == "fp16":
-#         tmp_models = [models['transformer']]
-#         # only upcast trainable parameters (LoRA) into fp32
-#         cast_training_params(tmp_models, dtype=torch.float32)
-    
-#     return weight_dtype
-
-
 def set_model_device(cfg, accelerator, models):
 
     # Choose dtype for inference-only models
@@ -561,6 +529,7 @@ def set_model_device(cfg, accelerator, models):
         weight_dtype = torch.float16
     elif accelerator.mixed_precision == "bf16":
         weight_dtype = torch.bfloat16
+
 
     # Move models to device
     for name, model in models.items():
@@ -572,6 +541,7 @@ def set_model_device(cfg, accelerator, models):
             # leave schedulers, tokenizers, etc. as they are
             pass
 
+
     # Ensure trainable params are in fp32 (LoRA or finetuning)
     if cfg.train.mixed_precision == "fp16":
         if 'testr' in cfg.train.model:
@@ -579,5 +549,25 @@ def set_model_device(cfg, accelerator, models):
         else:
             fp32_models = [models['transformer']]
         cast_training_params(fp32_models, dtype=torch.float32)
+        
+    
+    # As testr's deformable attention is does not support automatic float32 conversion, it cannot be wrapped around the accelerator.prepare(), which handles ddp training
+    # thus testr must be wrapped manually here 
+    if torch.distributed.is_initialized() and torch.cuda.device_count() > 1:
+        models['testr'] = torch.nn.parallel.DistributedDataParallel(
+            models['testr'],
+            device_ids=[accelerator.device],
+            output_device=accelerator.device,
+            broadcast_buffers=False,
+            find_unused_parameters=True
+        )
+    
 
+    '''
+        for accelerator.mixed_precision == "fp16", we first put all models on fp16
+        and then only for parameters that have requires_grad=True, which are trainable parameters,
+        they are only set to fp32 by cast_training_params function above.
+    '''
+    
+    
     return weight_dtype
