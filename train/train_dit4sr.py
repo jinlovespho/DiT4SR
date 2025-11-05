@@ -46,6 +46,8 @@ def main(cfg):
     exp_name = f'{cfg.train.mixed_precision}'
     if 'transformer' in cfg.train.model:
         exp_name = f'{exp_name}__{cfg.train.transformer.architecture}-{cfg.train.transformer.lr:.0e}'
+        if cfg.train.transformer.ocr_branch_init is not None:
+            exp_name = f'{exp_name}__ocrbranchinit-{cfg.train.transformer.ocr_branch_init}'
     if 'ts_module' in cfg.train.model:
         exp_name = f'{exp_name}__{cfg.train.ts_module.architecture}-{cfg.train.ts_module.lr:.0e}__ocrloss{cfg.train.ocr_loss_weight}'
     exp_name = f'{exp_name}__bs-{str(cfg.train.batch_size)}__gradaccum-{cfg.train.gradient_accumulation_steps}__{cfg.train.transformer.feat_extract}__{cfg.log.tracker.msg}'

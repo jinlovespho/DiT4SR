@@ -136,9 +136,8 @@ ckpt:
     # ts_module: result_train/stage2/fp16_stage2_testr_1e-04__ocrloss0.01_descriptive_DiTfeat24_dit4sr_lr1e5_ckpt18k_testr_pretrained/checkpoint-6000
 
     # JIHYE_CKPT_stage1
-    # dit: 
-    dit: result_train/JIHYE_CKPT/stage1/checkpoint-32000
-    # dit: 
+    dit: 
+    # dit: result_train/JIHYE_CKPT/stage1/checkpoint-32000
     ts_module: 
 
 
@@ -153,6 +152,9 @@ train:
     architecture: "dit4sr_ocrbranch_ocr2hq2ocr"
     lr: 1e-5
 
+    # ocr_branch_init: 'hq_branch'
+    ocr_branch_init: "lq_branch"
+
 
 
     # # 0. finetuning -> cond_conv + OCR branch
@@ -165,29 +167,29 @@ train:
 
 
 
-    # # 1. finetuning -> cond_conv + OCR branch + HQ branch
-    # finetune_layer_names: [
-
-    #   'ocr_to_hidden_conv', 'hidden_to_ocr_conv',
-
-    #   'to_q_ocr', 'to_k_ocr', 'to_v_ocr', 'to_out_ocr', 
-
-    #   'to_q', 'to_k', 'to_v', 'to_out',   
-    # ]
-
-
-
-    # 2. finetuning -> cond_conv + OCR branch + HQ branch + LQ branch 
+    # 1. finetuning -> cond_conv + OCR branch + HQ branch
     finetune_layer_names: [
 
-      'ocr_to_hidden_conv', 'hidden_to_ocr_conv', 'control_conv',
+      'ocr_to_hidden_conv', 'hidden_to_ocr_conv',
 
-      'to_q_ocr', 'to_k_ocr', 'to_v_ocr', 'to_out_ocr',
+      'to_q_ocr', 'to_k_ocr', 'to_v_ocr', 'to_out_ocr', 
 
       'to_q', 'to_k', 'to_v', 'to_out',   
-
-      'to_q_control', 'to_k_control', 'to_v_control', 'to_out_control'
     ]
+
+
+
+    # # 2. finetuning -> cond_conv + OCR branch + HQ branch + LQ branch 
+    # finetune_layer_names: [
+
+    #   'ocr_to_hidden_conv', 'hidden_to_ocr_conv', 'control_conv',
+
+    #   'to_q_ocr', 'to_k_ocr', 'to_v_ocr', 'to_out_ocr',
+
+    #   'to_q', 'to_k', 'to_v', 'to_out',   
+
+    #   'to_q_control', 'to_k_control', 'to_v_control', 'to_out_control'
+    # ]
 
 
     # choose from ['hq_feat', 'lq_feat', 'ocr_feat']
@@ -230,7 +232,8 @@ val:
 
 save:
   # 251104 - ocr branch implemented
-  output_dir: ./result_train/ocrbranch_251105
+  # output_dir: ./result_train/ocrbranch_251105
+  output_dir: ./result_train/ocrbranch_2511062
   checkpointing_steps: 500
 
 
@@ -241,6 +244,14 @@ log:
     project_name: cvpr26_tair2_train
     server: 20
     gpu: 3
+
+
     # 251104 - ocr branch implemented 
-    msg: ir-dit4sr-jihye-s1_finetune2
+    # msg: ir-dit4sr-jihye-s1_finetune2
+
+
+    # 251106 - ocr branch ckpt loaded properly
+    msg: ir-dit4sr-q__finetune-ocr-hq
+
+
   log_dir: logs

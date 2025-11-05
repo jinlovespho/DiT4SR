@@ -365,7 +365,7 @@ def load_model(cfg, accelerator):
     
     if cfg.train.transformer.architecture == 'dit4sr':
         from model_dit4sr.transformer_sd3 import SD3Transformer2DModel
-        transformer = SD3Transformer2DModel.from_pretrained_local(dit_ckpt_path, subfolder="transformer", revision=None, variant=None)
+        transformer = SD3Transformer2DModel.from_pretrained_local(dit_ckpt_path, subfolder="transformer", revision=None, variant=None, accelerator=accelerator, cfg=cfg)
         if accelerator.is_main_process:
             print('-'*50)
             print('     Using dit4sr architecture ')
@@ -373,7 +373,7 @@ def load_model(cfg, accelerator):
             
     elif cfg.train.transformer.architecture == 'dit4sr_ocrbranch_ocr2hq':
         from model_dit4sr.transformer_sd3_ocrbranch_ocr2hq import SD3Transformer2DModel_OCRBranch_OCR2HQ
-        transformer = SD3Transformer2DModel_OCRBranch_OCR2HQ.from_pretrained_local(dit_ckpt_path, subfolder="transformer", revision=None, variant=None)
+        transformer = SD3Transformer2DModel_OCRBranch_OCR2HQ.from_pretrained_local(dit_ckpt_path, subfolder="transformer", revision=None, variant=None, accelerator=accelerator, cfg=cfg)
         if accelerator.is_main_process:
             print('-'*50)
             print('     Using dit4sr_ocrbranch_OCR2HQ architecture')
@@ -381,7 +381,7 @@ def load_model(cfg, accelerator):
     
     elif cfg.train.transformer.architecture == 'dit4sr_ocrbranch_ocr2hq2ocr':
         from model_dit4sr.transformer_sd3_ocrbranch_ocr2hq2ocr import SD3Transformer2DModel_OCRBranch_OCR2HQ2OCR
-        transformer = SD3Transformer2DModel_OCRBranch_OCR2HQ2OCR.from_pretrained_local(dit_ckpt_path, subfolder="transformer", revision=None, variant=None)
+        transformer = SD3Transformer2DModel_OCRBranch_OCR2HQ2OCR.from_pretrained_local(dit_ckpt_path, subfolder="transformer", revision=None, variant=None, accelerator=accelerator, cfg=cfg)
         if accelerator.is_main_process:
             print('-'*50)
             print('     Using dit4sr_ocrbranch_OCR2HQ2OCR architecture')

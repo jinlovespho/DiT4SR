@@ -411,7 +411,7 @@ class SD3Transformer2DModel_OCRBranch_OCR2HQ2OCR(ModelMixin, ConfigMixin, PeftAd
     
 
     @classmethod
-    def from_pretrained_local(cls, pretrained_model_path, subfolder=None, **kwargs):
+    def from_pretrained_local(cls, pretrained_model_path, subfolder=None, accelerator=None, cfg=None, **kwargs):
         if subfolder is not None:
             pretrained_model_path = os.path.join(pretrained_model_path, subfolder)
 
@@ -426,8 +426,126 @@ class SD3Transformer2DModel_OCRBranch_OCR2HQ2OCR(ModelMixin, ConfigMixin, PeftAd
         if not os.path.isfile(model_file):
             raise RuntimeError(f"{model_file} does not exist")
         state_dict = safetensors.torch.load_file(model_file, device="cpu")
-        model.load_state_dict(state_dict, strict=False)
+    
+        # # just to check if the HQ branch and text branch of DiT4SR matches SD35 weights -> it matches :) 
+        # sd35_state_dict = safetensors.torch.load_file('./preset/models/stable-diffusion-3.5-medium/transformer/diffusion_pytorch_model.safetensors', device="cpu")
+    
+    
+    
+    
+    
+    
+        # -----------------------------------------------------------------------------------------
+        #   We need to manually override the new ocr branch layer with LQ or HQ branch layers    
+        # -----------------------------------------------------------------------------------------
+        if cfg.train.transformer.ocr_branch_init is not None:
+            
+            print('-'*70)
+            print('OVERRIDING THE NEW OCR BRANCH OF DiT4SR')
+            print('-'*70)
+            
+            # identify which weights of the model that are not in the ckpt weights             
+            source_weights = list(state_dict.keys())            # weights from ckpt
+            target_weights = list(model.state_dict().keys())    # weights from current model
+            unmatched_target_weights = [w for w in target_weights if w not in source_weights]
+            
 
+            # remove hidden_to_ocr_conv as this will be initalized to zero
+            unmatched_target_weights = [ w for w in unmatched_target_weights if 'hidden_to_ocr_conv' not in w]
+            
+            # remove ocr_to_hidden as this will be initalized to zero
+            unmatched_target_weights = [ w for w in unmatched_target_weights if 'ocr_to_hidden_conv' not in w]
+            
+
+            override_msg=[]
+            matched_count=0
+            for target_layer in unmatched_target_weights:
+                # Example: "transformer_blocks.0.attn.to_q_ocr.weight"
+                target_parts = target_layer.split('.')  # ['transformer_blocks','0','attn','to_q_ocr','weight']
+
+                # Replace "ocr" with "control" for source key
+                target_id = target_parts[3]                   # e.g. "to_q_ocr"
+                
+                
+                # overriding the ocr_branch with hq_branch
+                if cfg.train.transformer.ocr_branch_init == 'hq_branch':
+                    
+                    if target_id.endswith('to_q_ocr') or target_id.endswith('to_k_ocr') or target_id.endswith('to_v_ocr'):
+                        source_id = target_id.replace("_ocr", "")
+                    elif target_id.endswith('to_out_ocr'):
+                        source_id = target_id.replace("_ocr", ".0")
+                    else:
+                        raise ValueError(
+                            f"[OCR Weight Mapping Error] Cannot determine source_id for target layer: '{target_id}' "
+                            f"(full key: '{target_layer}').\n"
+                            "Please update the mapping rules in your OCR branch initialization."
+                        )
+                
+                
+                # overriding the ocr_branch with lq_branch
+                elif cfg.train.transformer.ocr_branch_init == 'lq_branch':
+                    
+                    if target_id.endswith('to_q_ocr') or target_id.endswith('to_k_ocr') or target_id.endswith('to_v_ocr'):
+                        source_id = target_id.replace("_ocr", "_control")
+                    elif target_id.endswith('to_out_ocr'):
+                        source_id = target_id.replace("_ocr", "_control")
+                    else:
+                        raise ValueError(
+                            f"[OCR Weight Mapping Error] Cannot determine source_id for target layer: '{target_id}' "
+                            f"(full key: '{target_layer}').\n"
+                            "Please update the mapping rules in your OCR branch initialization."
+                        )
+                           
+                           
+                source_layer = '.'.join(target_parts[:3] + [source_id] + target_parts[4:])
+                if source_layer in state_dict:
+                    matched_count+=1
+                    # Copy weight
+                    state_dict[target_layer] = state_dict[source_layer].clone()
+                    print(f"Copied:  {target_layer:<50}  <-  {source_layer}")
+                    override_msg.append(f"Copied:  {target_layer:<50}  <-  {source_layer}")
+                else:
+                    print(f"WARNING:  target key: {target_layer}")
+                    print(f"WARNING:  No existing source key: {source_layer}")
+                    override_msg.append(f"WARNING:  target key: {target_layer}")
+                    override_msg.append(f"WARNING:  No existing source key: {source_layer}")
+                    
+                    
+            print('all weights from new OCR branch overridden!!')
+            override_msg.append('all weights from new OCR branch overridden!!')
+            assert matched_count == len(unmatched_target_weights)
+            
+            if accelerator.is_main_process:
+                # save ocr_branch override info
+                txt_file = f'{cfg.save.output_dir}/{cfg.exp_name}/dit4sr_ocr_branch_override.txt'
+                with open(txt_file, 'w') as f:
+                    for msg in override_msg:
+                        f.write(f'{msg}\n')
+                    
+
+        # override the model w/ ckpt weight
+        load_result = model.load_state_dict(state_dict, strict=False)
+        
+        print("\n===== Missing Keys =====")
+        for k in load_result.missing_keys:
+            print(f"  - {k}")
+
+        print("\n===== Unexpected Keys =====")
+        for k in load_result.unexpected_keys:
+            print(f"  - {k}")
+        
+        if accelerator.is_main_process:
+            # save ocr_branch override info
+            txt_file = f'{cfg.save.output_dir}/{cfg.exp_name}/dit4sr_override.txt'
+            with open(txt_file, 'w') as f:
+                f.write("\n===== Missing Keys =====\n")
+                for k in load_result.missing_keys:
+                    f.write(f"  - {k}\n")
+
+                f.write("\n===== Unexpected Keys =====\n")
+                for k in load_result.unexpected_keys:
+                    f.write(f"  - {k}\n")
 
         print("Successfully loaded Transformer weights!")
+        
         return model

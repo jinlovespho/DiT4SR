@@ -491,12 +491,13 @@ class AttentionZero_OCR2HQ2OCR(Attention):
             qk_norm=qk_norm,
             eps=1e-6,)
         
+        
         # lq branch
         self.to_q_control = zero_module(nn.Linear(self.query_dim, self.inner_dim, bias=self.use_bias))
         self.to_k_control = zero_module(nn.Linear(self.cross_attention_dim, self.inner_kv_dim, bias=self.use_bias))
         self.to_v_control = zero_module(nn.Linear(self.cross_attention_dim, self.inner_kv_dim, bias=self.use_bias))
         self.to_out_control = nn.Linear(self.inner_dim, self.out_dim, bias=True)
-        self.to_out_control.weight.data.copy_(self.to_out[0].weight.data)
+        self.to_out_control.weight.data.copy_(self.to_out[0].weight.data)   # just to initialize the starting weights of the new branch
         self.to_out_control.bias.data.copy_(self.to_out[0].bias.data)
         
         # lq ocr branch
