@@ -161,7 +161,7 @@ def main(cfg):
     # -----------------------------------
     #            load tsm
     # -----------------------------------
-    if 'testr' in cfg.train.model:
+    if 'ts_module' in cfg.train.model:
         ts_module = models['testr'] 
     else:
         ts_module = None 
@@ -518,7 +518,7 @@ def main(cfg):
                         
                         
             # vis ocr result
-            if ('testr' in cfg.train.model) and (cfg.data.val.ocr.vis_ocr):
+            if ('ts_module' in cfg.train.model) and (cfg.data.val.ocr.vis_ocr):
                 
                 # prepare ocr visualization
                 val_ocr_save_path = f'{cfg.save.output_dir}/{val_data_name}/{exp_name}/final_ocr_result'

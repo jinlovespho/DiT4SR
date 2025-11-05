@@ -10,8 +10,7 @@ data:
     hq_img_path: 
     ann_path: 
     hq_prompt_path: 
-    null_text_ratio:
-
+    null_text_ratio: 
 
   val:
     eval_list: [realtext]
@@ -24,6 +23,7 @@ data:
       vlm_input_ques: 
       vlm_caption_path: 
       val_num_img: 847
+      # val_img_id: []
       val_img_id: [Canon_001_HR_crop_1, Canon_21_x4_5_crop_0, Canon_24_x4_21_crop_0, Canon_30_x4_44_crop_0, Canon_31_x4_52_crop_0, Canon_32_x4_21_crop_0, Canon_32_x4_23_crop_0, Canon_33_x4_33_crop_0, Canon_37_x4_45_crop_0, Canon_41_x4_32_crop_0, Canon_41_x4_35_crop_0, DSC_0972_x4_13_crop_0, DSC_0984_x4_2_crop_0, DSC_0984_x4_6_crop_0, DSC_1023_x4_16_crop_0, DSC_1330_x4_4_crop_0, DSC_1342_x4_6_crop_0,  ]
 
     satext_lv3:
@@ -57,11 +57,10 @@ data:
       val_img_id: []
 
 
-    # choose from [gt, null, pred_tsm, pred_vlm]
+    # choose from [gt, pred_tsm, pred_vlm, null]
     # text_cond_prompt: "gt"
     # text_cond_prompt: "null"
     text_cond_prompt: "pred_tsm"
-    # text_cond_prompt: "pred_vlm"
 
 
     ocr:
@@ -74,9 +73,9 @@ data:
       vis_map: False
 
 
-
     eval_region: all
-    
+
+
 
     added_prompt: Cinematic, hyper sharpness, highly detailed, perfect without deformations, camera, hyper detailed photo - realistic maximum detail, 32k, Color Grading, ultra HD, extreme meticulous detailing, skin pore detailing.
     negative_prompt: motion blur, noisy, dotted, bokeh, pointed, CG Style, 3D render, unreal engine, blurring, dirty, messy, worst quality, low quality, frames, watermark, signature, jpeg artifacts, deformed, lowres, chaotic
@@ -97,28 +96,27 @@ data:
     # choose from [adain, wavelet]
     align_method: adain
     # align_method: wavelet
-
-
-
+    
 
 model:
   noise_scheduler:
-    weighting_scheme:
+    weighting_scheme: 
     logit_mean: 
     logit_std: 
-    mode_scale:
-    precondition_outputs: 
+    mode_scale: 
+    precondition_outputs:
 
   dit:
     name: 
     resolution: 
+    load_precomputed_caption: 
     use_gtprompt: 
     text_condition:
       # caption_style: tag
       caption_style: descriptive
 
   ts_module:
-    name:
+    name:  
 
 
 ckpt:
@@ -137,49 +135,70 @@ ckpt:
 
 
 
-
 train:
-  stage: 
-  model: ["dit4sr", "testr"]
-  lr: []
-  finetune: []
-  batch_size: 
-  num_workers: 
-  num_train_epochs:
-  max_train_steps: 
+  stage:
   mixed_precision: 'fp16'
+  model: ['transformer', 'ts_module']
+
+
+  transformer:
+    # choose from ["dit4sr", "dit4sr_ocrbranch_ocr2hq", "dit4sr_ocrbranch_ocr2hq2ocr"]
+    architecture: "dit4sr_ocrbranch_ocr2hq2ocr"
+    lr: 
+
+    # ocr_branch_init: 'hq_branch'
+    ocr_branch_init: "lq_branch"
+
+    finetune_layer_names: []
+
+    # choose from ['hq_feat', 'lq_feat', 'ocr_feat']
+    feat_extract: ocr_feat
+    feat_extract_layer: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
+
+
+
+  ts_module:
+    architecture: "testr"
+    lr: 
+    finetune_layer_names: ["all"]
+    
+
+
+  num_train_epochs: 
+  batch_size:        
+  num_workers: 
+  gradient_accumulation_steps: 
+  max_train_steps: 
   lr_scheduler: 
-  lr_warmup_steps: 
+  lr_warmup_steps:
   lr_num_cycles: 
   lr_power: 
   max_grad_norm: 
   set_grads_to_none: 
-  gradient_checkpointing:
-  gradient_accumulation_steps: 
   scale_lr: 
   use_8bit_adam: 
   ocr_loss_weight: 
-
+  
 
 val:
-  val_every_step:
+  val_every_step: 
 
 
 save:
-  # output_dir: ./result_val
-  # output_dir: ./result_val_dit4sr_2nd/full_eval
-  output_dir: ./result_val_dit4sr_2nd/few_eval
-  checkpointing_steps: 
+  # 251104 - ocr branch implemented
+  output_dir: ./result_val_dit4sr_3rd/few_eval
+  # output_dir: ./result_val_dit4sr_3rd/full_eval
+  checkpointing_steps:
 
 
 log:
   tracker: 
-    report_to: wandba
+    report_to: wandb
     key: e32eed0c2509bf898b850b0065ab62345005fb73
-    # project_name: cvpr26_tair_extension
     project_name: cvpr26_tair2_val
     server: 20
-    gpu: 4
+    gpu: 3
     msg: ""
-  log_dir: logs
 
+
+  log_dir: logs
