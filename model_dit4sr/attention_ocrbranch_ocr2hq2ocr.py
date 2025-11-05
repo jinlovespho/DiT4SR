@@ -403,6 +403,9 @@ class JointTransformerBlock(nn.Module):
             
             elif cfg.train.transformer.feat_extract == 'ocr_feat':
                 trans_blk_out['extract_feat'] = hidden_states[:,2048:3072]      # extract ocr_feat
+                
+            elif cfg.train.transformer.feat_extract == 'hqlq_feat':
+                trans_blk_out['extract_feat'] = hidden_states[:, 0:2048]      # extract concated lqhq_feat
 
 
 

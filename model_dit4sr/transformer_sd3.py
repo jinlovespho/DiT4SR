@@ -275,6 +275,7 @@ class SD3Transformer2DModel(ModelMixin, ConfigMixin, PeftAdapterMixin, FromOrigi
         joint_attention_kwargs: Optional[Dict[str, Any]] = None,
         return_dict: bool = True,
         skip_layers: Optional[List[int]] = None,
+        cfg=None
     ) -> Union[torch.FloatTensor, Transformer2DModelOutput]:
         """
         The [`SD3Transformer2DModel`] forward method.
@@ -333,7 +334,8 @@ class SD3Transformer2DModel(ModelMixin, ConfigMixin, PeftAdapterMixin, FromOrigi
         
         trans_blk_outs=[]
         # extract_feat_idx=[0,  9,  15,  23]
-        extract_feat_idx=[0,1,2,3,4,5,  6,7,8,9,10,11,  12,13,14,15,16,17,  18,19,20,21,22,23]
+        # extract_feat_idx=[0,1,2,3,4,5,  6,7,8,9,10,11,  12,13,14,15,16,17,  18,19,20,21,22,23]
+        extract_feat_idx = cfg.train.transformer.feat_extract_layer
         # extract_feat_idx=[2,3,4, 8,9,10, 14,15,16,  21,22,23]
         for index_block, block in enumerate(self.transformer_blocks):   # 24 blocks
             # Skip specified layers
@@ -362,10 +364,10 @@ class SD3Transformer2DModel(ModelMixin, ConfigMixin, PeftAdapterMixin, FromOrigi
 
                 # pho
                 if index_block in extract_feat_idx:
-                    encoder_hidden_states, hidden_states, trans_blk_out = block(hidden_states=hidden_states, encoder_hidden_states=encoder_hidden_states, temb=temb, extract_feat=True) 
+                    encoder_hidden_states, hidden_states, trans_blk_out = block(hidden_states=hidden_states, encoder_hidden_states=encoder_hidden_states, temb=temb, extract_feat=True, cfg=cfg) 
                     trans_blk_outs.append(trans_blk_out)
                 else:
-                    encoder_hidden_states, hidden_states = block(hidden_states=hidden_states, encoder_hidden_states=encoder_hidden_states, temb=temb, extract_feat=False) 
+                    encoder_hidden_states, hidden_states = block(hidden_states=hidden_states, encoder_hidden_states=encoder_hidden_states, temb=temb, extract_feat=False, cfg=cfg) 
 
             # controlnet residual
             if block_controlnet_hidden_states is not None and block.context_pre_only is False:
@@ -403,7 +405,7 @@ class SD3Transformer2DModel(ModelMixin, ConfigMixin, PeftAdapterMixin, FromOrigi
     
 
     @classmethod
-    def from_pretrained_local(cls, pretrained_model_path, subfolder=None, **kwargs):
+    def from_pretrained_local(cls, pretrained_model_path, subfolder=None, accelerator=None, cfg=None, **kwargs):
         if subfolder is not None:
             pretrained_model_path = os.path.join(pretrained_model_path, subfolder)
 
@@ -418,8 +420,35 @@ class SD3Transformer2DModel(ModelMixin, ConfigMixin, PeftAdapterMixin, FromOrigi
         if not os.path.isfile(model_file):
             raise RuntimeError(f"{model_file} does not exist")
         state_dict = safetensors.torch.load_file(model_file, device="cpu")
-        model.load_state_dict(state_dict, strict=False)
+    
+        
+        # # just to check if the HQ branch and text branch of DiT4SR matches SD35 weights -> it matches :) 
+        # sd35_state_dict = safetensors.torch.load_file('./preset/models/stable-diffusion-3.5-medium/transformer/diffusion_pytorch_model.safetensors', device="cpu")
+    
+    
+        # override the model w/ ckpt weight
+        load_result = model.load_state_dict(state_dict, strict=False)
+        
+        print("\n===== Missing Keys =====")
+        for k in load_result.missing_keys:
+            print(f"  - {k}")
 
+        print("\n===== Unexpected Keys =====")
+        for k in load_result.unexpected_keys:
+            print(f"  - {k}")
+        
+        if accelerator.is_main_process:
+            # save ocr_branch override info
+            txt_file = f'{cfg.save.output_dir}/{cfg.exp_name}/dit4sr_override.txt'
+            with open(txt_file, 'w') as f:
+                f.write("\n===== Missing Keys =====\n")
+                for k in load_result.missing_keys:
+                    f.write(f"  - {k}\n")
+
+                f.write("\n===== Unexpected Keys =====\n")
+                for k in load_result.unexpected_keys:
+                    f.write(f"  - {k}\n")
 
         print("Successfully loaded Transformer weights!")
+        
         return model

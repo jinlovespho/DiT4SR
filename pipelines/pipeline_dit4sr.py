@@ -1213,7 +1213,11 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
                             
                             # -- hq + lq feat --
                             # 1 2048 1536 -> bring both hq and lq tokens -> 1 2 1024 1536
-                            extracted_feats = [ rearrange(feat['extract_feat'], 'b (N H W) (pH pW d) -> b (N d) (H pH) (W pW)', N=1, H=height, W=width, pH=patch_size, pW=patch_size) for feat in etc_out ]    # b 384 64 64 
+                            if cfg.train.transformer.feat_extract == 'hqlq_feat':
+                                num_concat_feat = 2
+                            else:
+                                num_concat_feat = 1
+                            extracted_feats = [ rearrange(feat['extract_feat'], 'b (N H W) (pH pW d) -> b (N d) (H pH) (W pW)', N=num_concat_feat, H=height, W=width, pH=patch_size, pW=patch_size) for feat in etc_out ]    # b 384 64 64 
                             
                             # if cfg.train.repa.use_repa_tsm:
                             #     # REPA - extract features from specific layers

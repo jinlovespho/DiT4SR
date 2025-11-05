@@ -278,7 +278,7 @@ class JointTransformerBlock(nn.Module):
         self._chunk_dim = dim
 
     def forward(
-        self, hidden_states: torch.FloatTensor, encoder_hidden_states: torch.FloatTensor, temb: torch.FloatTensor, extract_feat: bool
+        self, hidden_states: torch.FloatTensor, encoder_hidden_states: torch.FloatTensor, temb: torch.FloatTensor, extract_feat: bool, cfg=None
     ):
         trans_blk_out={}
         b, n, d = hidden_states.shape   # where n is concated lq and hq tkn nums
@@ -358,7 +358,19 @@ class JointTransformerBlock(nn.Module):
             
             # -- using concat[hq, lq] feature --
             # trans_blk_out['extract_feat'] = hidden_states.detach()
-            trans_blk_out['extract_feat'] = hidden_states
+            # trans_blk_out['extract_feat'] = hidden_states
+            
+            if cfg.train.transformer.feat_extract == 'hq_feat':
+                trans_blk_out['extract_feat'] = hidden_states[:,0:1024]         # extract hq_feat
+                
+            elif cfg.train.transformer.feat_extract == 'lq_feat':
+                trans_blk_out['extract_feat'] = hidden_states[:,1024:2048]      # extract lq_feat
+            
+            elif cfg.train.transformer.feat_extract == 'ocr_feat':
+                trans_blk_out['extract_feat'] = hidden_states[:,2048:3072]      # extract ocr_feat
+                
+            elif cfg.train.transformer.feat_extract == 'hqlq_feat':
+                trans_blk_out['extract_feat'] = hidden_states[:, 0:2048]      # extract concated lqhq_feat
             
 
 

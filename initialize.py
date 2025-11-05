@@ -300,7 +300,6 @@ def load_data(cfg):
 
 def load_model(cfg, accelerator):
     from diffusers import AutoencoderKL, FlowMatchEulerDiscreteScheduler
-    from model_dit4sr.transformer_sd3 import SD3Transformer2DModel
     from transformers import CLIPTokenizer, PretrainedConfig, T5TokenizerFast
 
     models = {}
