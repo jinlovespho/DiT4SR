@@ -178,13 +178,13 @@ save:
 
 log:
   tracker: 
-    # report_to: 
-    # key: 
-    # project_name: 
+    report_to: 
+    key: 
+    project_name: 
     # 참고로 아래는 저의 wandb 로깅 세팅입니다
-    report_to: wandb
-    key: e32eed0c2509bf898b850b0065ab62345005fb73
-    project_name: cvpr26_tair_extension
+    # report_to: wandb
+    # key: e32eed0c2509bf898b850b0065ab62345005fb73
+    # project_name: cvpr26_tair_extension
     server: samsung
     gpu: 0123
     msg: jihye
