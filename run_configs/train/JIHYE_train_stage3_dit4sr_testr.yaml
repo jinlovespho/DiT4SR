@@ -153,7 +153,7 @@ train:
   #      STAGE3 - MODIFY HERE ! 
   # ----------------------------------
   num_train_epochs: 10  # 60k 일단 10에폭으로 돌려봐서 얼마나 걸리는지 봐야할 것 같아요  
-  batch_size: 1         # 배치사이즈는 h100에 최대 올라가는걸로 세팅해주세요
+  batch_size: 4         # 배치사이즈는 h100에 최대 올라가는걸로 세팅해주세요
   num_workers: 4
   gradient_accumulation_steps: 16  # grad accum도 선택적으로 하셔도 될것같아요 terediff 했던것처럼
   
@@ -167,7 +167,7 @@ train:
   set_grads_to_none: False
   scale_lr: False
   use_8bit_adam: False
-  ocr_loss_weight: 1.0              
+  ocr_loss_weight: 0.01              
   
 
 val:
