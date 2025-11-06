@@ -70,7 +70,6 @@ data:
     attn:
       vis_map: False
       
-    # choose from ['crop', 'full']
     eval_region: 
 
     added_prompt: 
@@ -97,7 +96,7 @@ model:
   dit:
     name: dit4sr
     resolution: 512
-    load_precomputed_caption: True
+    load_precomputed_vlm_caption: 
     use_gtprompt: True
     text_condition:
       # caption_style: tag
@@ -122,19 +121,34 @@ ckpt:
 
 train:
   stage: stage1
-  model: ["dit4sr"]
-  lr: [5e-5]
-  finetune: [lrbranch, attns]
   mixed_precision: 'fp16'
+  model: ['transformer']
 
+  transformer:
+    # choose from ["dit4sr", "dit4sr_ocrbranch_ocr2hq", "dit4sr_ocrbranch_ocr2hq2ocr"]
+    architecture: "dit4sr"
+    ocr_branch_init: 
+    lr: 5e-5
+    # finetuning only the LQ branch (control branch)
+    finetune_layer_names: [
+      'control_conv',
+      'to_q_control', 'to_k_control', 'to_v_control', 'to_out_control'
+    ]
+    feat_extract: 
+    feat_extract_layer:
+
+  ts_module:
+    architecture: 
+    lr: 
+    finetune_layer_names: []
 
   # ----------------------------------
   #      STAGE1 - MODIFY HERE ! 
   # ----------------------------------
-  num_train_epochs: 10  # 60k 일단 10에폭으로 돌려봐서 얼마나 걸리는지 봐야할 것 같아요  
+  num_train_epochs: 5  # 60k 일단 10에폭으로 돌려봐서 얼마나 걸리는지 봐야할 것 같아요  
   batch_size: 1         # 배치사이즈는 h100에 최대 올라가는걸로 세팅해주세요
   num_workers: 4
-  gradient_accumulation_steps: 1  # grad accum도 선택적으로 하셔도 될것같아요 terediff 했던것처럼
+  gradient_accumulation_steps: 16  # grad accum도 선택적으로 하셔도 될것같아요 terediff 했던것처럼
   
   
   max_train_steps: 
@@ -148,9 +162,9 @@ train:
   use_8bit_adam: False
   ocr_loss_weight: 
 
+
 val:
   val_every_step: 
-
 
 
 # ----------------------------------
@@ -158,19 +172,19 @@ val:
 # ----------------------------------
 save:
   output_dir: ./result_train/JIHYE_stage1       # ckpt 저장 경로 설정해주세요
-  checkpointing_steps: 5                    # 1k마다 저장하는걸로 일단 정했어요
+  checkpointing_steps: 500                    # 500마다 저장하는걸로 일단 정했어요
 
 
 
 log:
   tracker: 
-    report_to: 
-    key: 
-    project_name: 
+    # report_to: 
+    # key: 
+    # project_name: 
     # 참고로 아래는 저의 wandb 로깅 세팅입니다
-    # report_to: wandb
-    # key: e32eed0c2509bf898b850b0065ab62345005fb73
-    # project_name: cvpr26_tair_extension
+    report_to: wandb
+    key: e32eed0c2509bf898b850b0065ab62345005fb73
+    project_name: cvpr26_tair_extension
     server: samsung
     gpu: 0123
     msg: jihye

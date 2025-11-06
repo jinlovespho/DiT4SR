@@ -1,6 +1,6 @@
 #!/bin/bash
 
-CUDA="1,2,3,4"
+CUDA="0,1,2,3"
 NUM_GPU=4
 
 CUDA_VISIBLE_DEVICES=${CUDA} accelerate launch  --num_processes ${NUM_GPU} train/train_dit4sr.py \

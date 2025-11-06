@@ -444,38 +444,39 @@ def main(cfg):
                     # -----------------------------
                     # TXT Logging (main process)
                     # -----------------------------
-                    if accelerator.is_main_process and global_step % cfg.val.val_every_step == 0:
+                    if cfg.val.val_every_step == 0:
+                        if accelerator.is_main_process:
 
-                        save_norm_monitor_path = f"{cfg.save.output_dir}/{exp_name}/monitor_grad_norm"
-                        os.makedirs(save_norm_monitor_path, exist_ok=True)
+                            save_norm_monitor_path = f"{cfg.save.output_dir}/{exp_name}/monitor_grad_norm"
+                            os.makedirs(save_norm_monitor_path, exist_ok=True)
 
-                        # Get top-K gradients as text
-                        transformer_topk_txt = get_topk_gradients(transformer, top_k=20)
+                            # Get top-K gradients as text
+                            transformer_topk_txt = get_topk_gradients(transformer, top_k=20)
 
-                        if 'testr' in models and getattr(models['testr'], 'training', False):
-                            testr_topk_txt = get_topk_gradients(models['testr'], top_k=20)
-                        else:
-                            testr_topk_txt = "(testr missing or not training)\n"
+                            if 'testr' in models and getattr(models['testr'], 'training', False):
+                                testr_topk_txt = get_topk_gradients(models['testr'], top_k=20)
+                            else:
+                                testr_topk_txt = "(testr missing or not training)\n"
 
-                        # Build log string
-                        log_str = (
-                            f"[Step {global_step}]\n"
-                            f"transformer_max_grad = {transformer_max_grad:.6f}\n"
-                            f"testr_max_grad       = {testr_max_grad:.6f}\n"
-                            f"diff_loss            = {diff_loss.item():.6f}\n"
-                            f"ocr_tot_loss         = {ocr_tot_loss.item():.6f}\n"
-                            f"total_loss           = {total_loss.item():.6f}\n"
-                            f"{'-'*60}\n"
-                            f"Top 20 Transformer Gradients:\n"
-                            f"{transformer_topk_txt}"
-                            f"{'-'*60}\n"
-                            f"Top 20 Testr Gradients:\n"
-                            f"{testr_topk_txt}"
-                            f"{'='*80}\n\n"
-                        )
+                            # Build log string
+                            log_str = (
+                                f"[Step {global_step}]\n"
+                                f"transformer_max_grad = {transformer_max_grad:.6f}\n"
+                                f"testr_max_grad       = {testr_max_grad:.6f}\n"
+                                f"diff_loss            = {diff_loss.item():.6f}\n"
+                                f"ocr_tot_loss         = {ocr_tot_loss.item():.6f}\n"
+                                f"total_loss           = {total_loss.item():.6f}\n"
+                                f"{'-'*60}\n"
+                                f"Top 20 Transformer Gradients:\n"
+                                f"{transformer_topk_txt}"
+                                f"{'-'*60}\n"
+                                f"Top 20 Testr Gradients:\n"
+                                f"{testr_topk_txt}"
+                                f"{'='*80}\n\n"
+                            )
 
-                        with open(f"{save_norm_monitor_path}/grad_norm_step{global_step:09d}.txt", "a") as f:
-                            f.write(log_str)
+                            with open(f"{save_norm_monitor_path}/grad_norm_step{global_step:09d}.txt", "a") as f:
+                                f.write(log_str)
 
                     # -----------------------------
                     # Optimizer step
