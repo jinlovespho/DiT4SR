@@ -333,10 +333,6 @@ class SD3Transformer2DModel(ModelMixin, ConfigMixin, PeftAdapterMixin, FromOrigi
         ## control_dit end
         
         trans_blk_outs=[]
-        # extract_feat_idx=[0,  9,  15,  23]
-        # extract_feat_idx=[0,1,2,3,4,5,  6,7,8,9,10,11,  12,13,14,15,16,17,  18,19,20,21,22,23]
-        extract_feat_idx = cfg.train.transformer.feat_extract_layer
-        # extract_feat_idx=[2,3,4, 8,9,10, 14,15,16,  21,22,23]
         for index_block, block in enumerate(self.transformer_blocks):   # 24 blocks
             # Skip specified layers
             is_skip = True if skip_layers is not None and index_block in skip_layers else False     # is_skip = False
@@ -362,12 +358,17 @@ class SD3Transformer2DModel(ModelMixin, ConfigMixin, PeftAdapterMixin, FromOrigi
                 )
             elif not is_skip:
 
-                # pho
-                if index_block in extract_feat_idx:
-                    encoder_hidden_states, hidden_states, trans_blk_out = block(hidden_states=hidden_states, encoder_hidden_states=encoder_hidden_states, temb=temb, extract_feat=True, cfg=cfg) 
-                    trans_blk_outs.append(trans_blk_out)
+                if 'ts_module' in cfg.train.model:
+                    
+                    if index_block in cfg.train.transformer.feat_extract_layer:
+                        encoder_hidden_states, hidden_states, trans_blk_out = block(hidden_states=hidden_states, encoder_hidden_states=encoder_hidden_states, temb=temb, extract_feat=True, cfg=cfg) 
+                        trans_blk_outs.append(trans_blk_out)
+                    else:
+                        encoder_hidden_states, hidden_states = block(hidden_states=hidden_states, encoder_hidden_states=encoder_hidden_states, temb=temb, extract_feat=False, cfg=cfg) 
+                
                 else:
                     encoder_hidden_states, hidden_states = block(hidden_states=hidden_states, encoder_hidden_states=encoder_hidden_states, temb=temb, extract_feat=False, cfg=cfg) 
+                    
 
             # controlnet residual
             if block_controlnet_hidden_states is not None and block.context_pre_only is False:
@@ -398,8 +399,12 @@ class SD3Transformer2DModel(ModelMixin, ConfigMixin, PeftAdapterMixin, FromOrigi
             # remove `lora_scale` from each PEFT layer
             unscale_lora_layers(self, lora_scale)
 
-        if not return_dict:
-            return (output, trans_blk_outs)
+
+        if not return_dict:            
+            if 'ts_module' in cfg.train.model:
+                return (output, trans_blk_outs)
+            else:
+                return (output, )
 
         return Transformer2DModelOutput(sample=output)
     

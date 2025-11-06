@@ -1047,7 +1047,7 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
                 if mode == 'train':
                     txt_save_path = f"{cfg.save.output_dir}/{cfg.exp_name}/{kwargs['val_data_name']}/final_pred_txt"
                 elif mode =='val':
-                    txt_save_path = f"{cfg.save.output_dir}/{kwargs['val_data_name']}/{cfg.exp_name}/final_pred_txt"
+                    txt_save_path = f"{cfg.save.output_dir}/{cfg.exp_name}/final_pred_txt"
                 os.makedirs(txt_save_path, exist_ok=True)
                 
                 # set save name for train/val

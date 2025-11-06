@@ -43,14 +43,14 @@ def main(cfg):
     
     # set experiment name
     # exp_name = f'{cfg.train.mixed_precision}__{cfg.train.stage}__{"-".join(cfg.train.model)}__{"-".join(f"{lr:.0e}" for lr in cfg.train.lr)}__bs-{str(cfg.train.batch_size)}__gradaccum-{cfg.train.gradient_accumulation_steps}__{"-".join(cfg.train.finetune)}__ocrloss{cfg.train.ocr_loss_weight}__{cfg.model.dit.text_condition.caption_style}__{cfg.log.tracker.msg}'
-    exp_name = f'{cfg.train.mixed_precision}'
+    exp_name = f'{cfg.train.mixed_precision}__{cfg.train.stage}'
     if 'transformer' in cfg.train.model:
         exp_name = f'{exp_name}__{cfg.train.transformer.architecture}-{cfg.train.transformer.lr:.0e}'
         if cfg.train.transformer.ocr_branch_init is not None:
             exp_name = f'{exp_name}__ocrbranchinit-{cfg.train.transformer.ocr_branch_init}'
     if 'ts_module' in cfg.train.model:
-        exp_name = f'{exp_name}__{cfg.train.ts_module.architecture}-{cfg.train.ts_module.lr:.0e}__ocrloss{cfg.train.ocr_loss_weight}'
-    exp_name = f'{exp_name}__bs-{str(cfg.train.batch_size)}__gradaccum-{cfg.train.gradient_accumulation_steps}__{cfg.train.transformer.feat_extract}__{cfg.log.tracker.msg}'
+        exp_name = f'{exp_name}__{cfg.train.ts_module.architecture}-{cfg.train.ts_module.lr:.0e}__ocrloss{cfg.train.ocr_loss_weight}__extract-{cfg.train.transformer.feat_extract}-num-{str(len(cfg.train.transformer.feat_extract_layer))}'
+    exp_name = f'{exp_name}__bs-{str(cfg.train.batch_size)}__gradaccum-{cfg.train.gradient_accumulation_steps}__{cfg.log.tracker.msg}'
     cfg.exp_name = exp_name
     print(f'-' * 50)
     print(f'Experiment name: {exp_name}')
@@ -212,14 +212,14 @@ def main(cfg):
                         lq_latents = models['vae'].encode(lq).latent_dist.sample()  # b 16 64 64 
                         controlnet_image = (lq_latents - models['vae'].config.shift_factor) * models['vae'].config.scaling_factor   # b 16 64 64 
                         controlnet_image = controlnet_image.to(dtype=weight_dtype)
-                        # load caption
-                        if cfg.model.dit.load_precomputed_caption:
-                            hq_prompt = hq_prompt 
-                        else:
-                            # vlm captioner
-                            lq_tmp = F.interpolate(lq, size=(336, 336), mode="bilinear", align_corners=False)
-                            hq_prompt = models['vlm_agent'].gen_image_caption(lq_tmp)
-                            hq_prompt = [train_utils.remove_focus_sentences(p) for p in hq_prompt]
+                        # # load caption
+                        # if cfg.model.dit.load_precomputed_caption:
+                        #     hq_prompt = hq_prompt 
+                        # else:
+                        #     # vlm captioner
+                        #     lq_tmp = F.interpolate(lq, size=(336, 336), mode="bilinear", align_corners=False)
+                        #     hq_prompt = models['vlm_agent'].gen_image_caption(lq_tmp)
+                        #     hq_prompt = [train_utils.remove_focus_sentences(p) for p in hq_prompt]
 
                         # set prompt style
                         if cfg.model.dit.use_gtprompt:
@@ -360,12 +360,28 @@ def main(cfg):
                             ocr_losses[ocr_key].append(ocr_val.item())
                         else:
                             ocr_losses[ocr_key]=[ocr_val.item()]
-                    total_loss = diff_loss + cfg.train.ocr_loss_weight * ocr_tot_loss      
-                else:
+                #     total_loss = diff_loss + cfg.train.ocr_loss_weight * ocr_tot_loss      
+                # else:
+                #     total_loss = diff_loss
+                #     ocr_tot_loss=torch.tensor(0).cuda()
+                
+                
+                
+                # -------------------------------------------
+                #   Loss calculation for different stages
+                # -------------------------------------------
+                if cfg.train.stage == 'stage1':
                     total_loss = diff_loss
                     ocr_tot_loss=torch.tensor(0).cuda()
+                
+                elif cfg.train.stage == 'stage2':
+                    total_loss = cfg.train.ocr_loss_weight * ocr_tot_loss
+                
+                elif cfg.train.stage == 'stage3':
+                    total_loss = diff_loss + cfg.train.ocr_loss_weight * ocr_tot_loss      
                     
                     
+
 
                 # Inside your training loop, after backprop and gradient clipping
                 if global_step > 0:
@@ -412,28 +428,6 @@ def main(cfg):
                         for name, g in sorted_grads:
                             txt += f"{name:<60} {g:>10.6f}\n"
                         return txt
-
-                    # # -----------------------------
-                    # # Optional: print top-K grads
-                    # # -----------------------------
-                    # def print_top_grads_single(model, model_name, top_k=20):
-                    #     grad_dict = {}
-                    #     for name, param in model.named_parameters():
-                    #         if param.grad is not None:
-                    #             grad_dict[name] = param.grad.abs().max().item()
-                    #     sorted_grads = sorted(grad_dict.items(), key=lambda x: x[1], reverse=True)[:top_k]
-
-                    #     print(f"\nTop {top_k} parameters with largest gradients for {model_name}:")
-                    #     print(f"{'Parameter':<60} {'Max Grad':>10}")
-                    #     print("-"*72)
-                    #     for name, g in sorted_grads:
-                    #         print(f"{name:<60} {g:>10.6f}")
-                    #     print("-"*72 + "\n")
-
-                    # print_top_grads_single(transformer, "transformer", top_k=20)
-
-                    # if 'testr' in models and getattr(models['testr'], 'training', False):
-                    #     print_top_grads_single(models['testr'], "testr", top_k=20)
 
                     # -----------------------------
                     # WandB Logging
@@ -490,26 +484,6 @@ def main(cfg):
                     lr_scheduler.step()
                     optimizer.zero_grad(set_to_none=cfg.train.set_grads_to_none)
 
-
-
-                    
-            
-                '''
-                    transformer:
-                    
-                        1. training_layers (requires_grad=True):
-                            - transformer.transformer_blocks[0].attn.to_q.weight
-                    
-                        
-                        2. frozen_layers (requires_grad=False):
-                            - transformer.transformer_blocks[0].ff.net[0].proj.weight
-                    
-                    ts_module:
-                    
-                        models['testr'].testr.transformer.encoder.layers[0].self_attn.output_proj.weight
-                    
-                    
-                '''
 
 
             # Checks if the accelerator has performed an optimization step behind the scenes

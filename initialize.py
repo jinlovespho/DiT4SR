@@ -121,7 +121,7 @@ def load_experiment_setting(cfg, logger, exp_name):
     if accelerator.is_main_process:
         if cfg.save.output_dir is not None:
             os.makedirs(f'{cfg.save.output_dir}/{exp_name}', exist_ok=True)
-            shutil.copyfile(cfg.cfg_path, f'{cfg.save.output_dir}/{exp_name}/config.yaml')
+            shutil.copyfile(cfg.cfg_path, f'{cfg.save.output_dir}/{exp_name}/train_config.yaml')
 
             
     # `accelerate` 0.16.0 will have better support for customized saving
@@ -395,48 +395,53 @@ def load_model(cfg, accelerator):
     
     # load ts module 
     if 'ts_module' in cfg.train.model:
-        from testr.adet.modeling.transformer_detector import TransformerDetector
-        from testr.adet.config import get_cfg
-        # get testr config
-        config_testr = get_cfg()
-        config_testr.merge_from_file('./testr/configs/TESTR/TESTR_R_50_Polygon.yaml')
-        config_testr.freeze()
-        # load testr model
-        detector = TransformerDetector(config_testr)
-        # load testr pretrained weights     
-        if cfg.ckpt.resume_path.ts_module is not None:
-            tsm_ckpt_id = int(cfg.ckpt.resume_path.ts_module.split('/')[-1].split('-')[-1])
-            tsm_ckpt_path = f"{cfg.ckpt.resume_path.ts_module}/ts_module{tsm_ckpt_id:07d}.pt"
-            ckpt = torch.load(tsm_ckpt_path, map_location="cpu")
-            load_result = detector.load_state_dict(ckpt["ts_module"], strict=False)
-
-            if accelerator.is_main_process:
-                print("\n──────────────────────────────")
-                print(" [TESTR] Resumed from checkpoint")
-                print(f"  Path: {tsm_ckpt_path}")
-                print(f"  Missing Keys: {load_result.missing_keys}")
-                print("──────────────────────────────\n")
-
-        else:
-            if cfg.ckpt.init_path.ts_module is not None:
-                tsm_ckpt_path = cfg.ckpt.init_path.ts_module
+        
+        if cfg.train.ts_module.architecture == 'testr':
+            from testr.adet.modeling.transformer_detector import TransformerDetector
+            from testr.adet.config import get_cfg
+            # get testr config
+            config_testr = get_cfg()
+            config_testr.merge_from_file('./testr/configs/TESTR/TESTR_R_50_Polygon.yaml')
+            config_testr.diff_feat_extract = cfg.train.transformer.feat_extract
+            config_testr.freeze()
+            # load testr model
+            detector = TransformerDetector(config_testr)
+            # load testr pretrained weights     
+            if cfg.ckpt.resume_path.ts_module is not None:
+                # tsm_ckpt_id = int(cfg.ckpt.resume_path.ts_module.split('/')[-1].split('-')[-1])
+                # tsm_ckpt_path = f"{cfg.ckpt.resume_path.ts_module}/ts_module{tsm_ckpt_id:07d}.pt"
+                tsm_ckpt_path = cfg.ckpt.resume_path.ts_module
                 ckpt = torch.load(tsm_ckpt_path, map_location="cpu")
-                load_result = detector.load_state_dict(ckpt["model"], strict=False)
+                load_result = detector.load_state_dict(ckpt["ts_module"], strict=False)
 
                 if accelerator.is_main_process:
                     print("\n──────────────────────────────")
-                    print(" [TESTR] Initialized from checkpoint")
+                    print(" [TESTR] Resumed from checkpoint")
                     print(f"  Path: {tsm_ckpt_path}")
                     print(f"  Missing Keys: {load_result.missing_keys}")
+                    # print(f"  Unexpected Keys: {load_result.unexpected_keys}")
                     print("──────────────────────────────\n")
+
             else:
-                if accelerator.is_main_process:
-                    print("\n──────────────────────────────")
-                    print(" [TESTR] Initialized from scratch")
-                    print("──────────────────────────────\n")
+                if cfg.ckpt.init_path.ts_module is not None:
+                    tsm_ckpt_path = cfg.ckpt.init_path.ts_module
+                    ckpt = torch.load(tsm_ckpt_path, map_location="cpu")
+                    load_result = detector.load_state_dict(ckpt["model"], strict=False)
 
-        models["testr"] = detector.train()
+                    if accelerator.is_main_process:
+                        print("\n──────────────────────────────")
+                        print(" [TESTR] Initialized from checkpoint")
+                        print(f"  Path: {tsm_ckpt_path}")
+                        print(f"  Missing Keys: {load_result.missing_keys}")
+                        # print(f"  Unexpected Keys: {load_result.unexpected_keys}")
+                        print("──────────────────────────────\n")
+                else:
+                    if accelerator.is_main_process:
+                        print("\n──────────────────────────────")
+                        print(" [TESTR] Initialized from scratch")
+                        print("──────────────────────────────\n")
 
+            models["testr"] = detector.train()
 
 
     # # load vlm captioner 
@@ -521,16 +526,22 @@ def load_model_params(cfg, accelerator, models):
         
     # set trainable params in text spotting module 
     if 'ts_module' in cfg.train.model:
-        for name, param in models['testr'].named_parameters():
-            # Count total parameters
-            numel = param.numel()
-            tot_param_count += numel
-            tot_param_names.append(f"testr.{name}")
+        if cfg.train.ts_module.architecture == 'testr':
+            if len(cfg.train.ts_module.finetune_layer_names) == 0:
+                for name, param in models['testr'].named_parameters():
+                    # Count total parameters
+                    numel = param.numel()
+                    tot_param_count += numel
+                    tot_param_names.append(f"testr.{name}")
 
-            # Enable training
-            param.requires_grad = True
-            train_param_count += numel
-            train_param_names.append(f"testr.{name}")
+                    # Enable training
+                    param.requires_grad = True
+                    train_param_count += numel
+                    train_param_names.append(f"testr.{name}")
+            else:
+                raise ValueError()
+        else:
+            raise ValueError()
 
 
     model_params = {}

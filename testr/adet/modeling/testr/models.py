@@ -73,6 +73,9 @@ class TESTR(nn.Module):
         self.voc_size                = cfg.MODEL.TRANSFORMER.VOC_SIZE
         self.sigmoid_offset          = not cfg.MODEL.TRANSFORMER.USE_POLYGON
         
+        # pho
+        self.diff_feat_extract = cfg.diff_feat_extract
+        
 
         self.text_pos_embed   = PositionalEncoding1D(self.d_model, normalize=True, scale=self.pos_embed_scale)
         # fmt: on
@@ -163,35 +166,24 @@ class TESTR(nn.Module):
 
 
 
-
+        if self.diff_feat_extract == 'hqlq_feat':
+            # hqfeat24 + lqfeat24 
+            self.diff_feat_proj = nn.ModuleList([
+                # one feature is -> 384 
+                # we bring hq and lq -> 2
+                # out of 24 layers we need to input 4, so 24/4 = 6
+                FeatFusionBlock(in_ch=384*2*6, d_model=self.d_model)  # one block per feature level
+                for _ in range(4)
+            ])
         
-        # # 1. hqfeat24 + lqfeat24 
-        # self.diff_feat_proj = nn.ModuleList([
-        #     # one feature is -> 384 
-        #     # we bring hq and lq -> 2
-        #     # out of 24 layers we need to input 4, so 24/4 = 6
-        #     FeatFusionBlock(in_ch=384*2*6, d_model=self.d_model)  # one block per feature level
-        #     for _ in range(4)
-        # ])
-        
-        
-        
-        
-        # 2. OCR feat -> hqfeat24
-        self.diff_feat_proj = nn.ModuleList([
-            # one feature is -> 384 
-            # out of 24 layers we need to input 4, so 24/4 = 6
-            FeatFusionBlock(in_ch=384*6, d_model=self.d_model)  # one block per feature level
-            for _ in range(4)
-        ])
-        
-        
-        
-        
-    
-        
-        
-        
+        else:
+            # any feat24
+            self.diff_feat_proj = nn.ModuleList([
+                # one feature is -> 384 
+                # out of 24 layers we need to input 4, so 24/4 = 6
+                FeatFusionBlock(in_ch=384*6, d_model=self.d_model)  # one block per feature level
+                for _ in range(4)
+            ])
         
         
         

@@ -99,12 +99,13 @@ def main(cfg):
     print('- EXP NAME: ', exp_name)
 
 
-
+    
 
     # ----------------------------------------
     #         Eval saving directory 
     # ----------------------------------------
-    os.makedirs(f'{cfg.save.output_dir}/{val_data_name}/{exp_name}', exist_ok=True)
+    cfg.save.output_dir = f'{cfg.save.output_dir}/{val_data_name}'
+    os.makedirs(f'{cfg.save.output_dir}/{exp_name}', exist_ok=True)
     
     
     
@@ -347,7 +348,7 @@ def main(cfg):
             
 
             # Save only the restored image
-            val_res_save_path = f'{cfg.save.output_dir}/{val_data_name}/{exp_name}/final_restored_img'
+            val_res_save_path = f'{cfg.save.output_dir}/{exp_name}/final_restored_img'
             os.makedirs(val_res_save_path, exist_ok=True)
             val_res_pil.save(f'{val_res_save_path}/{val_img_id}.png')
             
@@ -466,7 +467,7 @@ def main(cfg):
             # ----------------------------------------------
             # Save image-level metrics to a text file 
             # ----------------------------------------------
-            val_img_metric_save_path = f'{cfg.save.output_dir}/{val_data_name}/{exp_name}/final_img_metric'
+            val_img_metric_save_path = f'{cfg.save.output_dir}/{exp_name}/final_img_metric'
             os.makedirs(val_img_metric_save_path, exist_ok=True)
             save_file = f'{val_img_metric_save_path}/{val_img_id}.txt'
 
@@ -496,7 +497,7 @@ def main(cfg):
             # --------------------------------------------------
 
             # save path
-            val_res_ocr_save_path = f'{cfg.save.output_dir}/{val_data_name}/{exp_name}/final_result'
+            val_res_ocr_save_path = f'{cfg.save.output_dir}/{exp_name}/final_result'
             os.makedirs(val_res_ocr_save_path, exist_ok=True)
             
             
@@ -521,7 +522,7 @@ def main(cfg):
             if ('ts_module' in cfg.train.model) and (cfg.data.val.ocr.vis_ocr):
                 
                 # prepare ocr visualization
-                val_ocr_save_path = f'{cfg.save.output_dir}/{val_data_name}/{exp_name}/final_ocr_result'
+                val_ocr_save_path = f'{cfg.save.output_dir}/{exp_name}/final_ocr_result'
                 os.makedirs(val_ocr_save_path, exist_ok=True)
                 
                 
@@ -652,7 +653,7 @@ def main(cfg):
                 print(line)
 
             # Save to text file
-            val_metric_save_path = f'{cfg.save.output_dir}/{val_data_name}/{exp_name}'
+            val_metric_save_path = f'{cfg.save.output_dir}/{exp_name}'
             os.makedirs(val_metric_save_path, exist_ok=True)
             save_path = f"{val_metric_save_path}/final_{val_data_name}_metric.txt"
             with open(save_path, "w") as f:
