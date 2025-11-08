@@ -144,14 +144,27 @@ train:
     ocr_branch_init: 
     lr: 1e-5
     
-    # finetuning only the LQ branch (control branch)
+
+    # # finetuning only the LQ branch (control branch)
+    # finetune_layer_names: [
+
+    #   'control_conv',
+
+    #   'to_q_control', 'to_k_control', 'to_v_control', 'to_out_control'
+
+    # ]
+
+
+    # finetune LQ branch + HQ branch
     finetune_layer_names: [
 
       'control_conv',
 
-      'to_q_control', 'to_k_control', 'to_v_control', 'to_out_control'
+      'to_q_control', 'to_k_control', 'to_v_control', 'to_out_control',
 
+      'to_q', 'to_k', 'to_v', 'to_out',   
     ]
+
 
     # choose from ['hq_feat', 'lq_feat', 'ocr_feat', 'hqlq_feat']
     # feat_extract: hqlq_feat
@@ -185,8 +198,9 @@ train:
   scale_lr: False
   use_8bit_adam: False
 
-  ocr_loss_weight: 1.0
+  # ocr_loss_weight: 1.0
   # ocr_loss_weight: 0.01
+  ocr_loss_weight: 0.002
   
 
 val:
@@ -206,7 +220,9 @@ log:
     key: e32eed0c2509bf898b850b0065ab62345005fb73
     project_name: cvpr26_tair2_train
     server: 20
-    gpu: 0
-    msg: "finetune-lqbranch_straight-to-stage3"
+    gpu: 6
 
+    # msg: "finetune-lqbranch_straight-to-stage3"
+    msg: "finetune-lq-hq-branch_straight-to-stage3"
+  
   log_dir: logs

@@ -189,4 +189,3 @@ log:
     gpu: 0123
     msg: jihye
   log_dir: logs
-
