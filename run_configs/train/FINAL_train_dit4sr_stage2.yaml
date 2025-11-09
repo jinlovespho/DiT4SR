@@ -81,10 +81,10 @@ data:
     eval_region: all
 
 
-    # added_prompt: 
-    # negative_prompt:
-    added_prompt: Cinematic, hyper sharpness, highly detailed, perfect without deformations, camera, hyper detailed photo - realistic maximum detail, 32k, Color Grading, ultra HD, extreme meticulous detailing, skin pore detailing.
-    negative_prompt: motion blur, noisy, dotted, bokeh, pointed, CG Style, 3D render, unreal engine, blurring, dirty, messy, worst quality, low quality, frames, watermark, signature, jpeg artifacts, deformed, lowres, chaotic    
+    added_prompt: 
+    negative_prompt:
+    # added_prompt: Cinematic, hyper sharpness, highly detailed, perfect without deformations, camera, hyper detailed photo - realistic maximum detail, 32k, Color Grading, ultra HD, extreme meticulous detailing, skin pore detailing.
+    # negative_prompt: motion blur, noisy, dotted, bokeh, pointed, CG Style, 3D render, unreal engine, blurring, dirty, messy, worst quality, low quality, frames, watermark, signature, jpeg artifacts, deformed, lowres, chaotic    
     save_prompts: True
     sample_times: 1
     guidance_scale: 1.0
@@ -131,7 +131,8 @@ ckpt:
     # dit: 
     # dit: result_train/FINAL_dit4sr/fp16__stage1__dit4sr-5e-05__bs-2__gradaccum-32__finetune-lqbranch/checkpoint-8000
     dit: result_train/JIHYE_CKPT/jihye_stage1/checkpoint-32000
-    ts_module: 
+    # ts_module: 
+    ts_module: result_train/stage2_STABLE_REPA_dit4sr_testr/stable-repa-0-1-2-3-4-5-6-7-8-9-10-11-12-13-14-15-16-17-18-19-20-21-22-23__fp16__stage2__testr__1e-05__bs-1__gradaccum-1____ocrloss0.02__descriptive__feat-hq-lq__hidden-after__ir-dit4sr-jihye-s1/checkpoint-40000/ts_module0040000.pt
 
 
 train:
@@ -144,8 +145,10 @@ train:
     # choose from ["dit4sr", "dit4sr_ocrbranch_ocr2hq", "dit4sr_ocrbranch_ocr2hq2ocr"]
     architecture: dit4sr
     ocr_branch_init: 
-    lr: 1e-5
+    lr: 1e-5 
     
+    # finetune_layer_names: []
+
 
     # finetuning only the LQ branch (control branch)
     finetune_layer_names: [
@@ -165,6 +168,7 @@ train:
     #   'to_q_control', 'to_k_control', 'to_v_control', 'to_out_control',
 
     #   'to_q', 'to_k', 'to_v', 'to_out',   
+
     # ]
 
 
@@ -177,7 +181,7 @@ train:
 
   ts_module:
     architecture: testr
-    lr: 1e-4
+    lr: 1e-5
     finetune_layer_names: []
     
 
@@ -185,7 +189,7 @@ train:
   #      STAGE2 - MODIFY HERE ! 
   # ----------------------------------
   num_train_epochs: 5  # 30k
-  batch_size: 1         
+  batch_size: 1 
   num_workers: 4
   gradient_accumulation_steps: 64
 
@@ -200,8 +204,8 @@ train:
   scale_lr: False
   use_8bit_adam: False
 
-  ocr_loss_weight: 1.0
-  # ocr_loss_weight: 0.01
+  # ocr_loss_weight: 1.0
+  ocr_loss_weight: 0.01
   # ocr_loss_weight: 0.002
   
 
@@ -210,7 +214,8 @@ val:
 
 
 save:
-  output_dir: ./result_train/FINAL_dit4sr
+  # output_dir: ./result_train/FINAL_dit4sr
+  output_dir: ./result_train/FINAL_FINAL_dit4sr
   checkpointing_steps: 500
 
 
@@ -220,11 +225,21 @@ log:
     key: e32eed0c2509bf898b850b0065ab62345005fb73
     project_name: cvpr26_tair2_train
     server: 20
-    gpu: 1
+    gpu: "0"
 
     
     # msg: "finetune-lq-branch__ir-dit4sr-q"
     # msg: "finetune-lq-branch__ir-dit4sr-s1-8k"
-    msg: "finetune-lq-branch__ir-dit4sr-s1-32k"
+    # msg: "finetune-lq-branch__ir-dit4sr-s1-32k"
+
+    # msg: "finetune-ONLY-TSM__ir-dit4sr-q"
+    # msg: "finetune-ONLY-TSM__ir-dit4sr-s1-jihye"
+    # msg: "finetune-ONLY-TSM__ir-dit4sr-s1-jihye__FROM-STABLEREPA-s2-40k"
+
+    # msg: "finetune-LQ-HQ-BRANCH__ir-dit4sr-s1-jihye"
+
+
+    msg: "finetune-lq-branch__ir-dit4sr-s1-jihye__tsm-s2-40k"
+    # msg: "finetune-lq-hq-branch__ir-dit4sr-s1-jihye__tsm-s2-40k"
   
   log_dir: logs

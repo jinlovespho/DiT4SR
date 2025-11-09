@@ -125,11 +125,13 @@ ckpt:
     noise_scheduler: preset/models/stable-diffusion-3.5-medium
     tokenizer: preset/models/stable-diffusion-3.5-medium
     text_encoder: preset/models/stable-diffusion-3.5-medium
-    dit: preset/models/dit4sr/dit4sr_q
-    ts_module: preset/models/testr/totaltext_testr_R_50_polygon.pth
-  resume_path:
     dit: 
     ts_module: 
+    # dit: preset/models/dit4sr/dit4sr_q
+    # ts_module: preset/models/testr/totaltext_testr_R_50_polygon.pth
+  resume_path:
+    dit: result_train/JIHYE_CKPT/jihye_stage1/checkpoint-32000
+    ts_module: result_train/stage2_STABLE_REPA_dit4sr_testr/stable-repa-0-1-2-3-4-5-6-7-8-9-10-11-12-13-14-15-16-17-18-19-20-21-22-23__fp16__stage2__testr__1e-05__bs-1__gradaccum-1____ocrloss0.02__descriptive__feat-hq-lq__hidden-after__ir-dit4sr-jihye-s1/checkpoint-40000/ts_module0040000.pt
 
 
 train:
@@ -145,30 +147,30 @@ train:
     lr: 1e-5
     
 
-    # # finetuning only the LQ branch (control branch)
-    # finetune_layer_names: [
-
-    #   'control_conv',
-
-    #   'to_q_control', 'to_k_control', 'to_v_control', 'to_out_control'
-
-    # ]
-
-
-    # finetune LQ branch + HQ branch
+    # finetuning only the LQ branch (control branch)
     finetune_layer_names: [
 
       'control_conv',
 
-      'to_q_control', 'to_k_control', 'to_v_control', 'to_out_control',
+      'to_q_control', 'to_k_control', 'to_v_control', 'to_out_control'
 
-      'to_q', 'to_k', 'to_v', 'to_out',   
     ]
 
 
+    # # finetune LQ branch + HQ branch
+    # finetune_layer_names: [
+
+    #   'control_conv',
+
+    #   'to_q_control', 'to_k_control', 'to_v_control', 'to_out_control',
+
+    #   'to_q', 'to_k', 'to_v', 'to_out',   
+    # ]
+
+
     # choose from ['hq_feat', 'lq_feat', 'ocr_feat', 'hqlq_feat']
-    # feat_extract: hqlq_feat
-    feat_extract: lq_feat
+    feat_extract: hqlq_feat
+    # feat_extract: lq_feat
     feat_extract_layer: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
 
 
@@ -199,8 +201,8 @@ train:
   use_8bit_adam: False
 
   # ocr_loss_weight: 1.0
-  # ocr_loss_weight: 0.01
-  ocr_loss_weight: 0.002
+  ocr_loss_weight: 0.01
+  # ocr_loss_weight: 0.002
   
 
 val:
@@ -208,9 +210,7 @@ val:
 
 
 save:
-  # 251104 - ocr branch implemented
-  # output_dir: ./result_train/ocrbranch_251105
-  output_dir: ./result_train/FINAL_dit4sr
+  output_dir: ./result_train/FINAL_FINAL_dit4sr
   checkpointing_steps: 500
 
 
@@ -220,9 +220,13 @@ log:
     key: e32eed0c2509bf898b850b0065ab62345005fb73
     project_name: cvpr26_tair2_train
     server: 20
-    gpu: 6
+    gpu: "2"
 
     # msg: "finetune-lqbranch_straight-to-stage3"
-    msg: "finetune-lq-hq-branch_straight-to-stage3"
+    # msg: "finetune-lq-hq-branch_straight-to-stage3"
+
+    msg: "finetune-lq-branch__ir-dit4sr-s1-jihye__tsm-s2-40k"
+    # msg: "finetune-lq-hq-branch__ir-dit4sr-s1-jihye__tsm-s2-40k"
+    
   
   log_dir: logs

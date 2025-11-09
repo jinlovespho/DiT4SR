@@ -59,8 +59,8 @@ data:
 
     # choose from [gt, pred_tsm, pred_vlm, null]
     # text_cond_prompt: "gt"
-    text_cond_prompt: "null"
-    # text_cond_prompt: "pred_tsm"
+    # text_cond_prompt: "null"
+    text_cond_prompt: "pred_tsm"
 
 
     ocr:
@@ -128,16 +128,30 @@ ckpt:
     dit: 
     ts_module: 
   resume_path:
-    # dit: result_train/FINAL_dit4sr/fp16__stage1__dit4sr-5e-05__bs-2__gradaccum-32__finetune-lqbranch/checkpoint-8000
-    dit: result_train/JIHYE_CKPT/jihye_stage1/checkpoint-32000
-    ts_module: 
+
+    # # ocrloss0.01__extract-hq-lq__finetune-lq__ckpt-3k
+    # dit: result_train/FINAL_dit4sr/fp16__stage3__dit4sr-1e-05__testr-1e-05__ocrloss0.01__extract-hqlq_feat-num-24__bs-1__gradaccum-64__finetune-lqbranch_straight-to-stage3/checkpoint-3000
+    # ts_module: result_train/FINAL_dit4sr/fp16__stage3__dit4sr-1e-05__testr-1e-05__ocrloss0.01__extract-hqlq_feat-num-24__bs-1__gradaccum-64__finetune-lqbranch_straight-to-stage3/checkpoint-3000/ts_module0003000.pt
+
+    # # ocrloss0.01__extract-hq-lq__finetune-lq__ckpt-5k
+    # dit: result_train/FINAL_dit4sr/fp16__stage3__dit4sr-1e-05__testr-1e-05__ocrloss0.01__extract-hqlq_feat-num-24__bs-1__gradaccum-64__finetune-lqbranch_straight-to-stage3/checkpoint-5000
+    # ts_module: result_train/FINAL_dit4sr/fp16__stage3__dit4sr-1e-05__testr-1e-05__ocrloss0.01__extract-hqlq_feat-num-24__bs-1__gradaccum-64__finetune-lqbranch_straight-to-stage3/checkpoint-5000/ts_module0005000.pt
+
+    # # ocrloss0.002__extract-hq-lq__finetune-lq__ckpt-3k
+    # dit: result_train/FINAL_dit4sr/fp16__stage3__dit4sr-1e-05__testr-1e-05__ocrloss0.002__extract-hqlq_feat-num-24__bs-1__gradaccum-64__finetune-lqbranch_straight-to-stage3/checkpoint-3000
+    # ts_module: result_train/FINAL_dit4sr/fp16__stage3__dit4sr-1e-05__testr-1e-05__ocrloss0.002__extract-hqlq_feat-num-24__bs-1__gradaccum-64__finetune-lqbranch_straight-to-stage3/checkpoint-3000/ts_module0003000.pt
+
+    # ocrloss0.002__extract-lq__finetune-lq__ckpt-3k
+    dit: result_train/FINAL_dit4sr/fp16__stage3__dit4sr-1e-05__testr-1e-05__ocrloss0.002__extract-lq_feat-num-24__bs-1__gradaccum-64__finetune-lqbranch_straight-to-stage3/checkpoint-3000
+    ts_module: result_train/FINAL_dit4sr/fp16__stage3__dit4sr-1e-05__testr-1e-05__ocrloss0.002__extract-lq_feat-num-24__bs-1__gradaccum-64__finetune-lqbranch_straight-to-stage3/checkpoint-3000/ts_module0003000.pt
+    
 
 
 
 train:
-  stage: stage1
+  stage: stage3
   mixed_precision: 'fp16'
-  model: ['transformer']
+  model: ['transformer', 'ts_module']
 
 
   transformer:
@@ -146,13 +160,15 @@ train:
     ocr_branch_init: 
     lr: 
     finetune_layer_names: []
-    feat_extract: 
-    feat_extract_layer: []
+    # choose from ['hq_feat', 'lq_feat', 'ocr_feat', 'hqlq_feat']
+    # feat_extract: hqlq_feat
+    feat_extract: lq_feat
+    feat_extract_layer: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
 
 
 
   ts_module:
-    architecture: 
+    architecture: testr
     lr: 
     finetune_layer_names: []
     
@@ -188,8 +204,10 @@ log:
     report_to: wandb
     key: e32eed0c2509bf898b850b0065ab62345005fb73
     project_name: cvpr26_tair2_val
-    server: 08
-    gpu: 0
-    # msg: "FINAL__ir-dit4sr-s1-8k"
-    msg: "FINAL__ir-dit4sr-s1-32k"
+    server: 20
+    gpu: 6
+    
+    msg: "FINAL__ckpt-3k"
+    # msg: "FINAL__ckpt-5k"
+
   log_dir: logs
