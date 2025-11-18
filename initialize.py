@@ -204,7 +204,8 @@ def load_val_data(val_data, cfg):
             continue 
         
         # load precomputed vlm captions
-        if (cfg.data.val.text_cond_prompt == 'pred_vlm') and (val_data.vlm_caption_path is not None):
+        # if (cfg.data.val.text_cond_prompt == 'pred_vlm') and (val_data.vlm_caption_path is not None):
+        if val_data.vlm_caption_path is not None:
             vlm_captions_txt = sorted(glob.glob(f"{val_data.vlm_caption_path}/*.txt"))
             vlm_caption_txt = vlm_captions_txt[val_idx]
             vlm_cap_id = vlm_caption_txt.split('/')[-1].split('.')[0]
@@ -293,6 +294,8 @@ def load_data(cfg):
         validation_data['satext_lv2']=load_val_data(cfg.data.val.satext_lv2, cfg)
     if 'satext_lv1' in cfg.data.val.eval_list:
         validation_data['satext_lv1']=load_val_data(cfg.data.val.satext_lv1, cfg)
+    if 'satext_test' in cfg.data.val.eval_list:
+        validation_data['satext_test']=load_val_data(cfg.data.val.satext_test, cfg)
 
     return train_loader, validation_data
 

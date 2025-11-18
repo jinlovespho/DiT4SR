@@ -58,6 +58,7 @@ if is_torch_xla_available():
 else:
     XLA_AVAILABLE = False
 
+from qwen_vl_utils import process_vision_info
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
@@ -795,6 +796,9 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
         args=None,
         cfg=None,
         mode=None,
+        vlm_model=None,
+        vlm_processor=None,
+        val_lq_path=None,
         **kwargs
     ):
         r"""
@@ -993,6 +997,7 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
         # # image_embedding = torch.cat([image_embedding, pad_tensor], dim=1)
         # prompt_embeds = torch.cat([prompt_embeds, image_embedding], dim=-2)
 
+
         control_image = self.vae.encode(control_image).latent_dist.sample() # b 3 512 512 
         control_image = (control_image - self.vae.config.shift_factor) * self.vae.config.scaling_factor
 
@@ -1061,8 +1066,9 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
                     f.write(f"{kwargs['lq_id']}\n")
                     f.write(f'[text_cond_prompt]: {cfg.data.val.text_cond_prompt}\n')
                     if cfg.data.val.text_cond_prompt == 'pred_vlm':
-                        f.write(f'[vlm captioner]: {cfg.vlm_captioner}\n')
-                        f.write(f'[vlm input ques {cfg.vlm_input_ques_num}]: {cfg.vlm_input_ques}\n')
+                        f.write(f'[vlm caption path]: {cfg.vlm_caption_path}\n')
+                        # f.write(f'[vlm captioner]: {cfg.vlm_captioner}\n')
+                        # f.write(f'[vlm input ques {cfg.vlm_input_ques_num}]: {cfg.vlm_input_ques}\n')
                     f.write(f'[text cond prompt style]: {cfg.model.dit.text_condition.caption_style}\n')
                     f.write(f'[init prompt]: {prompt}\n\n')
 
@@ -1081,11 +1087,16 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
                 timestep = t.expand(latent_model_input.shape[0])
 
                 if h*w<=tile_size*tile_size: # tiled latent input
-
-                    # TEXTUAL PROMPT GUIDANCE (TSM)
-                    if (i>0) and (cfg.data.val.text_cond_prompt == 'pred_tsm') and ('ts_module' in cfg.train.model):
-                        prompt_embeds_input = prompt_embeds_tsm     # prompt guidance after one timestep
+                    
+                    # TEXTUAL PROMPT GUIDANCE (TSM) + VLM CORRECTION
+                    if (i>0):
+                        
+                        if ((cfg.data.val.text_cond_prompt == 'pred_tsm') and ('ts_module' in cfg.train.model)):
+                            print('1')
+                            prompt_embeds_input = prompt_embeds_tsm 
+                        
                     else:
+                        print('2')
                         prompt_embeds_input = prompt_embeds
                         
                     
@@ -1098,12 +1109,15 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
                         pooled_prompt_embeds_input = torch.cat([negative_pooled_prompt_embeds, pooled_prompt_embeds], dim=0)    # (2, 2048)
                     else:
                         # # TEXTUAL PROMPT GUIDANCE (TSM)
-                        if (i>0) and (cfg.data.val.text_cond_prompt == 'pred_tsm') and ('ts_module' in cfg.train.model):
-                            pooled_prompt_embeds_input = pooled_prompt_embeds_tsm
+                        if (i>0):
+                            print('1 pool')
+                            if ((cfg.data.val.text_cond_prompt == 'pred_tsm') and ('ts_module' in cfg.train.model)):
+                                pooled_prompt_embeds_input = pooled_prompt_embeds_tsm
                         else:
+                            print('2 pool')
                             pooled_prompt_embeds_input = pooled_prompt_embeds
                     
-                    # breakpoint()
+                    breakpoint()
                     # controlnet(s) inference
                     trans_out = self.transformer(
                         hidden_states=latent_model_input,                       # b 16 64 64 
@@ -1259,23 +1273,148 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
                             #  set prompt style 
                             texts = [f'"{t}"' for t in ts_pred_text]
                             if cfg.model.dit.text_condition.caption_style == 'descriptive':
-                                pred_prompt = [f'The image features the texts {", ".join(texts)} that appear clearly on signs, boards, buildings, or other objects.']
-                                if len(pred_prompt) == 0:
-                                    pred_prompt=[""]
+                                tsm_pred_prompt = [f'The image features the texts {", ".join(texts)} that appear clearly on signs, boards, buildings, or other objects.']
+                                if len(tsm_pred_prompt) == 0:
+                                    tsm_pred_prompt=[""]
                             elif cfg.model.dit.text_condition.caption_style == 'tag':
-                                pred_prompt = [f"{', '.join(texts)}"]
+                                tsm_pred_prompt = [f"{', '.join(texts)}"]
                             
+                            
+                            
+                            
+                            # -------------------------------------------------
+                            #                   vlm correction
+                            # -------------------------------------------------    
+                            if cfg.data.val.vlm.vlm_correction:
+                                
+                                if i < min(cfg.data.val.vlm.vlm_apply_at_iter):
+                                    # print(f'using TSM prompt - iter{i}')
+                                    pred_prompt = prompt
+                                
+
+                                elif i in cfg.data.val.vlm.vlm_apply_at_iter:
+                                    
+                                    # Build instruction message
+                                    if len(texts) == 0:
+                                        predicted_texts_str = "No predicted texts are available."
+                                        hint_block = ""
+                                    else:
+                                        predicted_texts_str = ", ".join(texts)
+                                        hint_block = f"Use the following predicted texts only as hints: {predicted_texts_str}."
+
+                                    vlm_instruction = (
+                                        "You are given a low-quality image containing degraded English text. "
+                                        f"{hint_block} "
+                                        "Your task is to recover the correct text from the image.\n\n"
+                                        "Instructions:\n"
+                                        "1. Look carefully at the image to infer the actual text.\n"
+                                        "2. Use predicted texts only as supportive clues.\n"
+                                        "3. Correct OCR errors, noise, or missing characters.\n"
+                                        "4. Do NOT hallucinate text that is not visible.\n"
+                                        "5. Output only the corrected text as a clean list."
+                                    )
+                                    
+                                    
+                                    messages = [
+                                                    {
+                                                        "role": "user",
+                                                        "content": [
+                                                            {
+                                                                "type": "image",
+                                                                "image": val_lq_path,
+                                                            },
+                                                            {"type": "text", 
+                                                            "text": vlm_instruction}
+                                                        ],
+                                                    }
+                                                ]
+
+
+
+                                    # Preparation for inference
+                                    text = vlm_processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+                                    image_inputs, video_inputs = process_vision_info(messages)
+                                    inputs = vlm_processor(
+                                        text=[text],
+                                        images=image_inputs,
+                                        videos=video_inputs,
+                                        padding=True,
+                                        return_tensors="pt",
+                                    )
+                                    inputs = inputs.to(vlm_model.device)
+                                    # Inference: Generation of the output
+                                    generated_ids = vlm_model.generate(**inputs, max_new_tokens=128)
+                                    generated_ids_trimmed = [
+                                        out_ids[len(in_ids) :] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
+                                    ]
+                                    vlm_pred_texts = vlm_processor.batch_decode(
+                                        generated_ids_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False
+                                    )
+                                    
+                                    
+                                    if type(vlm_pred_texts) == list and len(vlm_pred_texts) != 0:
+                                        
+                                        # remove unwanted characters 
+                                        vlm_clean_texts=[]
+                                        for char in vlm_pred_texts[0]:
+                                            if 32 <= ord(char) and ord(char) < 127:
+                                                vlm_clean_texts.append(char)
+                                        vlm_pred_texts=''.join(vlm_clean_texts)
+                                        
+                                        # additional filtering
+                                        vlm_pred_texts = vlm_pred_texts.replace('[', '')
+                                        vlm_pred_texts = vlm_pred_texts.replace(']', '')
+                                        vlm_pred_texts = vlm_pred_texts.replace("'", "")
+                                        vlm_pred_texts = vlm_pred_texts.replace("-", "")
+                                        
+                                    # print('iter: ', i)
+                                    # print('tsm text: ', predicted_texts_str)
+                                    # print('vlm correction: ', vlm_pred_texts)
+                                    # print(f'using vlm prompt - iter{i}')
+                                    pred_prompt = [vlm_pred_texts]
+                                
+
+                                else:
+                                    # print(f'using previous vlm prompt - iter{i}')
+                                    pred_prompt = [vlm_pred_texts]
+                                    
+                            # not using vlm correction -> just use tsm prompt
+                            else:
+                                pred_prompt = tsm_pred_prompt
+                                
                             
                             # added prompt             
                             if cfg.data.val.added_prompt is not None:
                                 pred_prompt = [f'{pred_prompt[0]} {cfg.data.val.added_prompt}']
+                                
                             
                             # print and save prompt
                             if cfg.data.val.save_prompts:
-                                if cfg.data.val.text_cond_prompt == 'pred_tsm':
-                                    print(f"iter: {i:02d} | timestep: {t.item():8.2f} | text prompt: {ts_pred_text}")
-                                    with open(txt_file, "a") as f:
-                                        f.write(f"iter: {i:02d}   |   timestep: {t.item():8.2f}   |   text prompt: {ts_pred_text}\n")
+                                
+                                if cfg.data.val.text_cond_prompt == 'pred_tsm':    
+                                    
+                                    if cfg.data.val.vlm.vlm_correction:
+                                        
+                                        if i < min(cfg.data.val.vlm.vlm_apply_at_iter):
+                                            print(f"iter: {i:02d} | timestep: {t.item():8.2f} | current tsm ocr: {ts_pred_text}")
+                                            with open(txt_file, "a") as f:
+                                                f.write(f"iter: {i:02d}   |   timestep: {t.item():8.2f}   |   current tsm ocr: {ts_pred_text}\n")
+                                        
+                                        elif i in cfg.data.val.vlm.vlm_apply_at_iter:
+                                            print(f"iter: {i:02d} | timestep: {t.item():8.2f} | APPLY VLM CORRECTION: [{vlm_pred_texts}]")
+                                            with open(txt_file, "a") as f:
+                                                f.write(f"iter: {i:02d}   |   timestep: {t.item():8.2f}   |   APPLY VLM CORRECTION: [{vlm_pred_texts}]\n")
+                                        
+                                        else:
+                                            print(f"iter: {i:02d} | timestep: {t.item():8.2f} | vlm_corrected prompt: [{vlm_pred_texts}]")
+                                            with open(txt_file, "a") as f:
+                                                f.write(f"iter: {i:02d}   |   timestep: {t.item():8.2f}   |   vlm_corrected prompt: [{vlm_pred_texts}]\n")
+                                            
+                                    else:
+                                        print(f"iter: {i:02d} | timestep: {t.item():8.2f} | text prompt: {ts_pred_text}")
+                                        with open(txt_file, "a") as f:
+                                            f.write(f"iter: {i:02d}   |   timestep: {t.item():8.2f}   |   text prompt: {ts_pred_text}\n")
+                                
                                 else:
                                     print(f"iter: {i:02d} | timestep: {t.item():8.2f} | text prompt: {prompt}")
                                     with open(txt_file, "a") as f:
@@ -1305,7 +1444,7 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
                                 num_images_per_prompt=num_images_per_prompt,
                                 max_sequence_length=max_sequence_length,
                             )
-
+                            
 
                 else:
                     tile_weights = self._gaussian_weights(tile_size, tile_size, 1)
@@ -1454,7 +1593,7 @@ class StableDiffusion3ControlNetPipeline(DiffusionPipeline, SD3LoraLoaderMixin, 
 
                 # if XLA_AVAILABLE:
                 #     xm.mark_step()
-                
+            
 
         if output_type == "latent":
             image = latents

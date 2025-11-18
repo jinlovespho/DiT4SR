@@ -48,7 +48,7 @@ def main(cfg):
     #             Safety check 
     # ----------------------------------------
     val_data_name = cfg.data.val.eval_list[0]
-    assert val_data_name in ['realtext', 'satext_lv3', 'satext_lv2', 'satext_lv1']
+    assert val_data_name in ['realtext', 'satext_lv3', 'satext_lv2', 'satext_lv1', 'satext_test']
     
     
     
@@ -64,20 +64,29 @@ def main(cfg):
     
     if cfg.data.val.text_cond_prompt == 'pred_vlm':
         if cfg.data.val.eval_list[0] == 'realtext':
-            vlm_captioner = cfg.data.val.realtext.vlm_captioner
-            vlm_input_ques = cfg.data.val.realtext.vlm_input_ques
+            vlm_caption_path = cfg.data.val.realtext.vlm_caption_path
+            # vlm_captioner = cfg.data.val.realtext.vlm_captioner
+            # vlm_input_ques = cfg.data.val.realtext.vlm_input_ques
         elif cfg.data.val.eval_list[0] == 'satext_lv3':
-            vlm_captioner = cfg.data.val.satext_lv3.vlm_captioner
-            vlm_input_ques = cfg.data.val.satext_lv3.vlm_input_ques
+            vlm_caption_path = cfg.data.val.satext_lv3.vlm_caption_path
+            # vlm_captioner = cfg.data.val.satext_lv3.vlm_captioner
+            # vlm_input_ques = cfg.data.val.satext_lv3.vlm_input_ques
         elif cfg.data.val.eval_list[0] == 'satext_lv2':
-            vlm_captioner = cfg.data.val.satext_lv2.vlm_captioner
-            vlm_input_ques = cfg.data.val.satext_lv2.vlm_input_ques
+            vlm_caption_path = cfg.data.val.satext_lv2.vlm_caption_path
+            # vlm_captioner = cfg.data.val.satext_lv2.vlm_captioner
+            # vlm_input_ques = cfg.data.val.satext_lv2.vlm_input_ques
         elif cfg.data.val.eval_list[0] == 'satext_lv1':
-            vlm_captioner = cfg.data.val.satext_lv1.vlm_captioner
-            vlm_input_ques = cfg.data.val.satext_lv1.vlm_input_ques
+            vlm_caption_path = cfg.data.val.satext_lv1.vlm_caption_path
+            # vlm_captioner = cfg.data.val.satext_lv1.vlm_captioner
+            # vlm_input_ques = cfg.data.val.satext_lv1.vlm_input_ques
+        elif cfg.data.val.eval_list[0] == 'satext_test':
+            vlm_caption_path = cfg.data.val.satext_test.vlm_caption_path
+            # vlm_captioner = cfg.data.val.satext_lv1.vlm_captioner
+            # vlm_input_ques = cfg.data.val.satext_lv1.vlm_input_ques
         
-        cfg.vlm_captioner = vlm_captioner
-        cfg.vlm_input_ques_num = vlm_input_ques
+        # cfg.vlm_captioner = vlm_captioner
+        # cfg.vlm_input_ques_num = vlm_input_ques
+        cfg.vlm_caption_path = vlm_caption_path
         
         # english focused input prompt
         question_list = [
@@ -88,13 +97,15 @@ def main(cfg):
             "Extract all visible English words and letters from this low-quality image, even if they appear unclear.",
         ]
         
-        cfg.vlm_input_ques = question_list[vlm_input_ques]
-        exp_name = f'{exp_name}__{cfg.data.val.text_cond_prompt}-prompt__{vlm_captioner}__ques-{str(vlm_input_ques)}'
+        # cfg.vlm_input_ques = question_list[vlm_input_ques]
+        # exp_name = f'{exp_name}__{cfg.data.val.text_cond_prompt}-prompt__{vlm_captioner}__ques-{str(vlm_input_ques)}'
+        exp_name = f'{exp_name}__{cfg.data.val.text_cond_prompt}-prompt__{vlm_caption_path}'
     
     else:
         exp_name = f'{exp_name}__{cfg.data.val.text_cond_prompt}-prompt'
     
     exp_name = f'{exp_name}__{cfg.log.tracker.msg}'
+    exp_name = f'{cfg.log.tracker.msg}'
     cfg.exp_name = exp_name
     print('- EXP NAME: ', exp_name)
 
@@ -177,8 +188,30 @@ def main(cfg):
         tokenizer=models['tokenizers'][0], tokenizer_2=models['tokenizers'][1], tokenizer_3=models['tokenizers'][2], 
         transformer=models['transformer'], scheduler=models['noise_scheduler'], ts_module=ts_module,
     )
+    
+    
+    if cfg.data.val.vlm.vlm_correction:
 
-
+        if cfg.data.val.vlm.model == 'qwenvl-3b':
+            from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
+            from qwen_vl_utils import process_vision_info
+            vlm_model = Qwen2_5_VLForConditionalGeneration.from_pretrained("Qwen/Qwen2.5-VL-3B-Instruct", torch_dtype=torch.bfloat16, device_map='auto')
+            vlm_processor = AutoProcessor.from_pretrained("Qwen/Qwen2.5-VL-3B-Instruct")
+            vlm_model = vlm_model.eval()
+        
+        elif cfg.data.val.vlm.model == 'qwenvl-7b':
+            from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
+            from qwen_vl_utils import process_vision_info
+            
+            vlm_model = Qwen2_5_VLForConditionalGeneration.from_pretrained("Qwen/Qwen2.5-VL-7B-Instruct", torch_dtype=torch.bfloat16, device_map='auto')
+            vlm_processor = AutoProcessor.from_pretrained("Qwen/Qwen2.5-VL-7B-Instruct")
+            vlm_model = vlm_model.eval()
+    
+    
+    else:
+        vlm_model=None 
+        vlm_processor=None
+    
 
     # -----------------------
     #     image metric
@@ -300,7 +333,10 @@ def main(cfg):
 
             # text spotting module prompt
             elif cfg.data.val.text_cond_prompt == 'pred_tsm':
-                val_init_prompt = ['']
+                if cfg.data.val.vlm.vlm_correction:
+                    val_init_prompt = [val_vlm_cap]
+                else:
+                    val_init_prompt = ['']
                 
             # vlm prompt 
             elif cfg.data.val.text_cond_prompt == 'pred_vlm':
@@ -321,7 +357,7 @@ def main(cfg):
                 neg_prompt = None 
                 
                 
-        
+            print('INIT PROMPT: ', val_init_prompt)
             # -------------------------------------------------
             #       validation pipeline forward pass 
             # -------------------------------------------------
@@ -330,7 +366,7 @@ def main(cfg):
                     prompt=val_init_prompt[0], control_image=val_lq_pil, num_inference_steps=cfg.data.val.num_inference_steps, generator=generator, height=512, width=512,
                     guidance_scale=cfg.data.val.guidance_scale, negative_prompt=neg_prompt,
                     start_point=cfg.data.val.start_point, latent_tiled_size=cfg.data.val.latent_tiled_size, latent_tiled_overlap=cfg.data.val.latent_tiled_overlap,
-                    output_type = 'pil', return_dict=False, lq_id=val_img_id, val_data_name=val_data_name, cfg=cfg, mode='val', hq_img=val_hq_pil
+                    output_type = 'pil', return_dict=False, lq_id=val_img_id, val_data_name=val_data_name, cfg=cfg, mode='val', hq_img=val_hq_pil, vlm_model=vlm_model, vlm_processor=vlm_processor, val_lq_path=val_lq_path
                 )
             
             

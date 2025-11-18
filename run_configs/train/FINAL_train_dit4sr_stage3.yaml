@@ -147,25 +147,25 @@ train:
     lr: 1e-5
     
 
-    # finetuning only the LQ branch (control branch)
-    finetune_layer_names: [
-
-      'control_conv',
-
-      'to_q_control', 'to_k_control', 'to_v_control', 'to_out_control'
-
-    ]
-
-
-    # # finetune LQ branch + HQ branch
+    # # finetuning only the LQ branch (control branch)
     # finetune_layer_names: [
 
     #   'control_conv',
 
-    #   'to_q_control', 'to_k_control', 'to_v_control', 'to_out_control',
+    #   'to_q_control', 'to_k_control', 'to_v_control', 'to_out_control'
 
-    #   'to_q', 'to_k', 'to_v', 'to_out',   
     # ]
+
+
+    # finetune LQ branch + HQ branch
+    finetune_layer_names: [
+
+      'control_conv',
+
+      'to_q_control', 'to_k_control', 'to_v_control', 'to_out_control',
+
+      'to_q', 'to_k', 'to_v', 'to_out',   
+    ]
 
 
     # choose from ['hq_feat', 'lq_feat', 'ocr_feat', 'hqlq_feat']
@@ -200,8 +200,8 @@ train:
   scale_lr: False
   use_8bit_adam: False
 
-  # ocr_loss_weight: 1.0
-  ocr_loss_weight: 0.01
+  ocr_loss_weight: 1.0
+  # ocr_loss_weight: 0.01
   # ocr_loss_weight: 0.002
   
 
@@ -220,13 +220,18 @@ log:
     key: e32eed0c2509bf898b850b0065ab62345005fb73
     project_name: cvpr26_tair2_train
     server: 20
-    gpu: "2"
+    gpu: "3"
 
     # msg: "finetune-lqbranch_straight-to-stage3"
     # msg: "finetune-lq-hq-branch_straight-to-stage3"
 
-    msg: "finetune-lq-branch__ir-dit4sr-s1-jihye__tsm-s2-40k"
+    # msg: "finetune-lq-branch__ir-dit4sr-s1-jihye__tsm-s2-40k"
     # msg: "finetune-lq-hq-branch__ir-dit4sr-s1-jihye__tsm-s2-40k"
+
+    # msg: "finetune-lq__ir-dit4sr-s1-jihye__tsm-FROZEN-s2-40k"
+    # msg: "finetune-lq-hq__ir-dit4sr-s1-jihye__tsm-FROZEN-s2-40k"
+
+    msg: "FINAL_CVPR_DETACH"
     
   
   log_dir: logs
